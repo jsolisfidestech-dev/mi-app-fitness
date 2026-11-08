@@ -1,12 +1,18 @@
 let video, canvas, ctx, detector;
-let currentFacingMode = 'user'; // Cámara FRONTAL al inicio (para verse entrenando)
+
+// Leer de la URL qué cámara usar (frontal por defecto)
+function getCameraFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('cam') === 'back' ? 'environment' : 'user';
+}
+
+let currentFacingMode = getCameraFromURL();
 
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   
-  // Detener stream anterior si existe
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(track => track.stop());
     video.srcObject = null;
@@ -57,7 +63,6 @@ function calculateAngle(a, b, c) {
 function drawSkeleton(keypoints) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  // Dibujar puntos
   ctx.fillStyle = '#00ff00';
   keypoints.forEach(kp => {
     if (kp.score > 0.3) {
@@ -67,7 +72,6 @@ function drawSkeleton(keypoints) {
     }
   });
   
-  // Dibujar líneas
   ctx.strokeStyle = '#00ff00';
   ctx.lineWidth = 3;
   
@@ -111,7 +115,6 @@ async function detectPose() {
           const keypoints = poses[0].keypoints;
           drawSkeleton(keypoints);
           
-          // Detectar curl de bíceps
           const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
           const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
           const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
@@ -142,19 +145,15 @@ async function detectPose() {
   }
 }
 
-// Botón para cambiar cámara - RECARGA LA PÁGINA (más confiable en móviles)
+// Botón para cambiar cámara: cambia la URL y recarga
 document.getElementById('btn-rotate').addEventListener('click', () => {
-  const feedback = document.getElementById('feedback');
-  feedback.textContent = '🔄 Cambiando cámara...';
+  const params = new URLSearchParams(window.location.search);
+  const currentCam = params.get('cam') || 'front';
+  const newCam = currentCam === 'back' ? 'front' : 'back';
   
-  // Cambiar el modo de cámara en la URL
-  const newMode = currentFacingMode === 'user' ? 'environment' : 'user';
-  currentFacingMode = newMode;
-  
-  // Recargar la página con el nuevo modo
-  setTimeout(() => {
-    location.reload();
-  }, 500);
+  // Actualizar URL con el nuevo parámetro
+  const newURL = window.location.pathname + '?cam=' + newCam + '&v=' + Date.now();
+  window.location.href = newURL;
 });
 
 // Inicialización
@@ -162,7 +161,8 @@ async function init() {
   const feedback = document.getElementById('feedback');
   
   try {
-    feedback.textContent = '📹 Preparando cámara frontal...';
+    const cameraName = currentFacingMode === 'user' ? 'frontal' : 'trasera';
+    feedback.textContent = `📹 Preparando cámara ${cameraName}...`;
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
@@ -170,7 +170,7 @@ async function init() {
     detectPose();
   } catch (error) {
     console.error('Error inicial:', error);
-    feedback.textContent = ' Error al iniciar';
+    feedback.textContent = '❌ Error al iniciar';
   }
 }
 
