@@ -19,7 +19,12 @@
         <option value="curl">Curl de Bíceps</option>
         <option value="squat">Sentadilla</option>
         <option value="pushup">Flexiones</option>
+        <option value="bench_press">Press de Banca</option>
+        <option value="incline_press">Press Inclinado</option>
+        <option value="lat_pulldown">Jalón al Pecho</option>
+        <option value="seated_row">Remo en V</option>
       </select>
+      <button id="btn-help" class="btn-help">❓ Cómo ubicar el celular</button>
     </div>
 
     <div class="form-group">
@@ -33,6 +38,16 @@
     </div>
 
     <button id="btn-start" class="btn-primary">▶️ Iniciar Entrenamiento</button>
+  </div>
+
+  <!-- MODAL DE INSTRUCCIONES -->
+  <div id="help-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-modal">&times;</span>
+      <h2 id="modal-title">Instrucciones</h2>
+      <div id="modal-body" class="modal-body"></div>
+      <button id="btn-close-modal" class="btn-primary">Entendido</button>
+    </div>
   </div>
 
   <!-- PANTALLA DE ENTRENAMIENTO -->
@@ -58,6 +73,6 @@
   
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="script.js?v=8"></script>
+  <script src="script.js?v=11"></script>
 </body>
 </html>
