@@ -1,7 +1,7 @@
 let video, canvas, ctx, detector;
 let currentFacingMode = 'user'; 
 let isSwitching = false;
-let isRunning = false; // Control para que el bucle no se rompa
+let isRunning = false;
 
 // Variables del entrenamiento
 let selectedExercise = 'curl';
@@ -9,13 +9,12 @@ let targetSets = 3;
 let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
-let stage = 'down'; // Para contar reps: 'down' (brazo estirado) o 'up' (brazo encogido)
+let stage = 'down';
+let goalReached = false; // Nueva variable: ¿ya cumplió la meta de reps?
 
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const workoutInfo = document.getElementById('workout-info');
-
-// --- CÁMARA E IA ---
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -60,7 +59,6 @@ function calculateAngle(a, b, c) {
 function drawSkeleton(keypoints, isBadPosture) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  // Color de los puntos y líneas (Verde si está bien, Rojo si está mal)
   const color = isBadPosture ? '#ff0000' : '#00ff00';
   
   ctx.fillStyle = color;
@@ -95,8 +93,6 @@ function drawSkeleton(keypoints, isBadPosture) {
   });
 }
 
-// --- BUCLE DE DETECCIÓN Y CONTEO ---
-
 async function detectPose() {
   if (isRunning) return;
   isRunning = true;
@@ -110,19 +106,16 @@ async function detectPose() {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
-          
           let isBadPosture = false;
           
           if (selectedExercise === 'curl') {
-            // Usamos el brazo izquierdo (puedes cambiar a right si prefieres)
-            const ls = keypoints.find(k => k.name === 'left_shoulder');
-            const le = keypoints.find(k => k.name === 'left_elbow');
-            const lw = keypoints.find(k => k.name === 'left_wrist');
+            const rs = keypoints.find(k => k.name === 'right_shoulder');
+            const re = keypoints.find(k => k.name === 'right_elbow');
+            const rw = keypoints.find(k => k.name === 'right_wrist');
             
-            if (ls && le && lw && ls.score > 0.3 && le.score > 0.3 && lw.score > 0.3) {
-              const angle = calculateAngle(ls, le, lw);
+            if (rs && re && rw && rs.score > 0.3 && re.score > 0.3 && rw.score > 0.3) {
+              const angle = calculateAngle(rs, re, rw);
               
-              // LÓGICA DE CONTEO Y FEEDBACK PARA BÍCEPS
               if (angle > 160) {
                 stage = 'down';
                 feedback.textContent = 'Brazo estirado. ¡Sube!';
@@ -132,10 +125,22 @@ async function detectPose() {
                   currentRep++;
                   stage = 'up';
                   updateInfoText();
-                  feedback.textContent = `✅ ¡Rep ${currentRep}! Baja controlado.`;
-                  feedback.style.color = '#51cf66';
+                  
+                  // LÓGICA MEJORADA: sigue contando pero avisa
+                  if (currentRep === targetReps) {
+                    goalReached = true;
+                    feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}`;
+                    feedback.style.color = '#51cf66';
+                    showNextSetButton();
+                  } else if (currentRep > targetReps) {
+                    feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
+                    feedback.style.color = '#51cf66';
+                  } else {
+                    feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
+                    feedback.style.color = '#51cf66';
+                  }
                 } else {
-                  feedback.textContent = 'Bien, baja el peso.';
+                  feedback.textContent = 'Bien, bajá controlado.';
                   feedback.style.color = '#51cf66';
                 }
               } else {
@@ -144,7 +149,7 @@ async function detectPose() {
               }
             }
           } else {
-            feedback.textContent = `Ejercicio: ${selectedExercise} (Lógica en desarrollo)`;
+            feedback.textContent = `Ejercicio: ${selectedExercise} (próximamente)`;
           }
           
           drawSkeleton(keypoints, isBadPosture);
@@ -156,10 +161,54 @@ async function detectPose() {
 }
 
 function updateInfoText() {
-  workoutInfo.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}/${targetReps}`;
+  workoutInfo.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}`;
 }
 
-// --- BOTONES ---
+function showNextSetButton() {
+  const controls = document.querySelector('.controls');
+  const oldBtn = document.getElementById('btn-next-set');
+  if (oldBtn) return; // Si ya existe, no lo duplicamos
+  
+  if (currentSet < targetSets) {
+    const btn = document.createElement('button');
+    btn.id = 'btn-next-set';
+    btn.className = 'btn-small';
+    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`;
+    btn.onclick = nextSet;
+    controls.appendChild(btn);
+  } else {
+    const btn = document.createElement('button');
+    btn.id = 'btn-next-set';
+    btn.className = 'btn-small';
+    btn.textContent = '🏆 Terminar Entrenamiento';
+    btn.onclick = finishWorkout;
+    controls.appendChild(btn);
+  }
+}
+
+function nextSet() {
+  currentSet++;
+  currentRep = 0;
+  stage = 'down';
+  goalReached = false;
+  updateInfoText();
+  
+  const feedback = document.getElementById('feedback');
+  feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
+  feedback.style.color = '#ffd43b';
+  
+  const btn = document.getElementById('btn-next-set');
+  if (btn) btn.remove();
+}
+
+function finishWorkout() {
+  const feedback = document.getElementById('feedback');
+  feedback.textContent = `🏆 ¡Entrenamiento completado! Total: ${currentRep} reps en ${currentSet} series.`;
+  feedback.style.color = '#51cf66';
+  
+  const btn = document.getElementById('btn-next-set');
+  if (btn) btn.remove();
+}
 
 document.getElementById('btn-rotate').addEventListener('click', async () => {
   if (isSwitching) return;
@@ -190,7 +239,7 @@ document.getElementById('btn-rotate').addEventListener('click', async () => {
 });
 
 document.getElementById('btn-back').addEventListener('click', () => {
-  isRunning = false; // Detiene el bucle
+  isRunning = false;
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(t => t.stop());
     video.srcObject = null;
@@ -206,6 +255,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   currentSet = 1;
   currentRep = 0;
   stage = 'down';
+  goalReached = false;
 
   updateInfoText();
 
