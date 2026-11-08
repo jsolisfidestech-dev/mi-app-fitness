@@ -1,6 +1,20 @@
 let video, canvas, ctx, detector;
-let currentFacingMode = 'user'; // Inicia con FRONTAL
-let isSwitching = false; // Control para evitar errores al cambiar
+let currentFacingMode = 'user'; 
+let isSwitching = false;
+
+// Variables del entrenamiento
+let selectedExercise = 'curl';
+let targetSets = 3;
+let targetReps = 10;
+let currentSet = 1;
+let currentRep = 0;
+
+// Referencias al DOM (Pantallas)
+const setupScreen = document.getElementById('setup-screen');
+const workoutScreen = document.getElementById('workout-screen');
+const workoutInfo = document.getElementById('workout-info');
+
+// --- FUNCIONES DE CÁMARA E IA ---
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -9,15 +23,9 @@ async function setupCamera() {
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: currentFacingMode,
-        width: { ideal: 640 },
-        height: { ideal: 480 }
-      } 
+      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } 
     });
-    
     video.srcObject = stream;
-    
     return new Promise((resolve) => {
       video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
@@ -62,26 +70,18 @@ function drawSkeleton(keypoints) {
   
   ctx.strokeStyle = '#00ff00';
   ctx.lineWidth = 3;
-  
   const connections = [
-    ['left_shoulder', 'right_shoulder'],
-    ['left_shoulder', 'left_elbow'],
-    ['left_elbow', 'left_wrist'],
-    ['right_shoulder', 'right_elbow'],
-    ['right_elbow', 'right_wrist'],
-    ['left_shoulder', 'left_hip'],
-    ['right_shoulder', 'right_hip'],
-    ['left_hip', 'right_hip'],
-    ['left_hip', 'left_knee'],
-    ['left_knee', 'left_ankle'],
-    ['right_hip', 'right_knee'],
-    ['right_knee', 'right_ankle']
+    ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
+    ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
+    ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
+    ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
+    ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+    ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
   ];
   
   connections.forEach(([start, end]) => {
     const kp1 = keypoints.find(kp => kp.name === start);
     const kp2 = keypoints.find(kp => kp.name === end);
-    
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
       ctx.beginPath();
       ctx.moveTo(kp1.x, kp1.y);
@@ -94,81 +94,55 @@ function drawSkeleton(keypoints) {
 async function detectPose() {
   const feedback = document.getElementById('feedback');
   
-  while (true) {
-    // Si estamos cambiando de cámara, esperamos
-    if (isSwitching) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      continue;
-    }
+  while (video.srcObject) {
+    if (isSwitching) { await new Promise(r => setTimeout(r, 100)); continue; }
 
     try {
       if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
-        
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
           drawSkeleton(keypoints);
           
-          const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
-          const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
-          const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
-          
-          if (leftShoulder && leftElbow && leftWrist && 
-              leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
+          // Lógica básica de ejemplo (la mejoraremos en la Fase 2)
+          if (selectedExercise === 'curl') {
+            const ls = keypoints.find(k => k.name === 'left_shoulder');
+            const le = keypoints.find(k => k.name === 'left_elbow');
+            const lw = keypoints.find(k => k.name === 'left_wrist');
             
-            const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-            
-            if (angle < 60) {
-              feedback.textContent = '✅ ¡Bien! Sube el peso';
-              feedback.style.color = '#51cf66';
-            } else if (angle > 160) {
-              feedback.textContent = '⬇️ Baja más el peso';
-              feedback.style.color = '#ff6b6b';
-            } else {
-              feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
-              feedback.style.color = '#ffd43b';
+            if (ls && le && lw && ls.score > 0.3 && le.score > 0.3 && lw.score > 0.3) {
+              const angle = calculateAngle(ls, le, lw);
+              if (angle < 60) feedback.textContent = '✅ ¡Bien! Sube';
+              else if (angle > 160) feedback.textContent = '⬇️ Baja más';
+              else feedback.textContent = `Ángulo: ${Math.round(angle)}°`;
             }
+          } else {
+            feedback.textContent = `Haciendo: ${selectedExercise}`;
           }
         }
       }
-    } catch (error) {
-      console.error('Error detección:', error);
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (error) { console.error('Error detección:', error); }
+    await new Promise(r => setTimeout(r, 50));
   }
 }
 
-// Botón para cambiar cámara (SIN recargar la página)
+// Botón Cambiar Cámara
 document.getElementById('btn-rotate').addEventListener('click', async () => {
-  if (isSwitching) return; // Evita doble clic
-  
+  if (isSwitching) return;
   isSwitching = true;
   const feedback = document.getElementById('feedback');
-  feedback.textContent = '🔄 Cambiando cámara...';
+  feedback.textContent = '🔄 Cambiando...';
   
   try {
-    // 1. Detener la cámara actual
     if (video.srcObject) {
-      video.srcObject.getTracks().forEach(track => track.stop());
+      video.srcObject.getTracks().forEach(t => t.stop());
       video.srcObject = null;
     }
-    
-    // 2. Cambiar el modo
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-    
-    // 3. Iniciar la nueva cámara
     const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: currentFacingMode,
-        width: { ideal: 640 },
-        height: { ideal: 480 }
-      } 
+      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } 
     });
-    
     video.srcObject = stream;
-    
-    // 4. Esperar a que el video esté listo
     await new Promise((resolve) => {
       video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
@@ -176,32 +150,48 @@ document.getElementById('btn-rotate').addEventListener('click', async () => {
         resolve();
       };
     });
-    
     feedback.textContent = '✅ Cámara cambiada';
-    
   } catch (error) {
-    console.error('Error al cambiar:', error);
     feedback.textContent = '❌ Error al cambiar';
-  } finally {
-    isSwitching = false;
-  }
+  } finally { isSwitching = false; }
 });
 
-// Inicialización
-async function init() {
+// Botón Salir (Volver al menú)
+document.getElementById('btn-back').addEventListener('click', () => {
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  workoutScreen.style.display = 'none';
+  setupScreen.style.display = 'block';
+});
+
+// Botón INICIAR ENTRENAMIENTO
+document.getElementById('btn-start').addEventListener('click', async () => {
+  // 1. Guardar datos del formulario
+  selectedExercise = document.getElementById('exercise-select').value;
+  targetSets = parseInt(document.getElementById('sets-input').value);
+  targetReps = parseInt(document.getElementById('reps-input').value);
+  currentSet = 1;
+  currentRep = 0;
+
+  // 2. Actualizar texto de info
+  workoutInfo.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}/${targetReps}`;
+
+  // 3. Cambiar pantallas
+  setupScreen.style.display = 'none';
+  workoutScreen.style.display = 'block';
+
+  // 4. Iniciar cámara e IA
   const feedback = document.getElementById('feedback');
-  
   try {
-    feedback.textContent = '📹 Preparando cámara frontal...';
+    feedback.textContent = '📹 Preparando cámara...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
     feedback.textContent = '✅ Listo para entrenar';
     detectPose();
   } catch (error) {
-    console.error('Error inicial:', error);
     feedback.textContent = '❌ Error al iniciar';
   }
-}
-
-window.addEventListener('load', init);
+});
