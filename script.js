@@ -10,7 +10,6 @@ let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
-let goalReached = false; // Nueva variable: ¿ya cumplió la meta de reps?
 
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
@@ -109,6 +108,7 @@ async function detectPose() {
           let isBadPosture = false;
           
           if (selectedExercise === 'curl') {
+            // Usamos el brazo derecho (que con efecto espejo se ve del lado derecho)
             const rs = keypoints.find(k => k.name === 'right_shoulder');
             const re = keypoints.find(k => k.name === 'right_elbow');
             const rw = keypoints.find(k => k.name === 'right_wrist');
@@ -126,10 +126,8 @@ async function detectPose() {
                   stage = 'up';
                   updateInfoText();
                   
-                  // LÓGICA MEJORADA: sigue contando pero avisa
                   if (currentRep === targetReps) {
-                    goalReached = true;
-                    feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}`;
+                    feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
                     feedback.style.color = '#51cf66';
                     showNextSetButton();
                   } else if (currentRep > targetReps) {
@@ -167,30 +165,27 @@ function updateInfoText() {
 function showNextSetButton() {
   const controls = document.querySelector('.controls');
   const oldBtn = document.getElementById('btn-next-set');
-  if (oldBtn) return; // Si ya existe, no lo duplicamos
+  if (oldBtn) return;
   
+  let btn;
   if (currentSet < targetSets) {
-    const btn = document.createElement('button');
+    btn = document.createElement('button');
     btn.id = 'btn-next-set';
-    btn.className = 'btn-small';
     btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`;
     btn.onclick = nextSet;
-    controls.appendChild(btn);
   } else {
-    const btn = document.createElement('button');
+    btn = document.createElement('button');
     btn.id = 'btn-next-set';
-    btn.className = 'btn-small';
     btn.textContent = '🏆 Terminar Entrenamiento';
     btn.onclick = finishWorkout;
-    controls.appendChild(btn);
   }
+  controls.appendChild(btn);
 }
 
 function nextSet() {
   currentSet++;
   currentRep = 0;
   stage = 'down';
-  goalReached = false;
   updateInfoText();
   
   const feedback = document.getElementById('feedback');
@@ -203,7 +198,7 @@ function nextSet() {
 
 function finishWorkout() {
   const feedback = document.getElementById('feedback');
-  feedback.textContent = `🏆 ¡Entrenamiento completado! Total: ${currentRep} reps en ${currentSet} series.`;
+  feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
   feedback.style.color = '#51cf66';
   
   const btn = document.getElementById('btn-next-set');
@@ -246,6 +241,9 @@ document.getElementById('btn-back').addEventListener('click', () => {
   }
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
+  // Limpiar botón de siguiente serie si existe
+  const btn = document.getElementById('btn-next-set');
+  if (btn) btn.remove();
 });
 
 document.getElementById('btn-start').addEventListener('click', async () => {
@@ -255,7 +253,6 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   currentSet = 1;
   currentRep = 0;
   stage = 'down';
-  goalReached = false;
 
   updateInfoText();
 

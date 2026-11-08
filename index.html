@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mi Personal Trainer IA</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -11,7 +11,7 @@
   <!-- PANTALLA DE CONFIGURACIÓN -->
   <div id="setup-screen">
     <h1>🏋️ Personal Trainer IA</h1>
-    <p>Configura tu entrenamiento</p>
+    <p>Configurá tu entrenamiento</p>
     
     <div class="form-group">
       <label for="exercise-select">Ejercicio:</label>
@@ -35,7 +35,7 @@
     <button id="btn-start" class="btn-primary">▶️ Iniciar Entrenamiento</button>
   </div>
 
-  <!-- PANTALLA DE ENTRENAMIENTO (Oculta al inicio) -->
+  <!-- PANTALLA DE ENTRENAMIENTO -->
   <div id="workout-screen" style="display: none;">
     <div class="top-bar">
       <button id="btn-back" class="btn-small">⬅️ Salir</button>
@@ -44,9 +44,11 @@
 
     <div class="feedback" id="feedback">Preparando...</div>
     
-    <div class="video-container">
-      <video id="video" autoplay playsinline muted></video>
-      <canvas id="canvas"></canvas>
+    <div class="video-wrapper">
+      <div class="video-container">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+      </div>
     </div>
     
     <div class="controls">
@@ -56,6 +58,6 @@
   
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="script.js?v=7"></script>
+  <script src="script.js?v=8"></script>
 </body>
 </html>
