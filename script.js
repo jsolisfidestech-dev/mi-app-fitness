@@ -1,15 +1,16 @@
 let video, canvas, ctx, detector;
-let facingMode = 'environment'; // 'environment' = cámara trasera (por defecto)
-let isDetecting = false;
+let facingMode = 'environment'; // Cámara trasera por defecto
+let detectionLoop = null;
 
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   
-  // Detener streams anteriores si existen
+  // Detener stream anterior si existe
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(track => track.stop());
+    video.srcObject = null;
   }
   
   try {
@@ -20,20 +21,18 @@ async function setupCamera() {
         height: { ideal: 480 }
       } 
     });
+    
     video.srcObject = stream;
     
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       video.onloadedmetadata = () => {
-        video.width = video.videoWidth;
-        video.height = video.videoHeight;
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         resolve();
       };
     });
   } catch (error) {
-    console.error('Error al acceder a la cámara:', error);
-    document.getElementById('feedback').textContent = ' Error de cámara';
+    console.error('Error cámara:', error);
     throw error;
   }
 }
@@ -41,7 +40,11 @@ async function setupCamera() {
 async function loadModel() {
   // Cerrar detector anterior si existe
   if (detector) {
-    await detector.close();
+    try {
+      await detector.close();
+    } catch (e) {
+      console.log('Detector ya cerrado');
+    }
   }
   
   detector = await poseDetection.createDetector(
@@ -62,7 +65,7 @@ function calculateAngle(a, b, c) {
 function drawSkeleton(keypoints) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  // Dibujar puntos en las articulaciones
+  // Dibujar puntos
   ctx.fillStyle = '#00ff00';
   keypoints.forEach(kp => {
     if (kp.score > 0.3) {
@@ -72,7 +75,7 @@ function drawSkeleton(keypoints) {
     }
   });
   
-  // Dibujar líneas conectando articulaciones
+  // Dibujar líneas
   ctx.strokeStyle = '#00ff00';
   ctx.lineWidth = 3;
   
@@ -105,23 +108,22 @@ function drawSkeleton(keypoints) {
 }
 
 async function detectPose() {
-  if (isDetecting) return; // Evitar múltiples ejecuciones simultáneas
-  isDetecting = true;
+  // Detener loop anterior si existe
+  if (detectionLoop) {
+    cancelAnimationFrame(detectionLoop);
+  }
   
-  try {
-    while (true) {
-      if (!detector || !video.srcObject) {
-        break;
-      }
-      
+  async function loop() {
+    if (!detector || !video.srcObject) return;
+    
+    try {
       const poses = await detector.estimatePoses(video);
       
       if (poses.length > 0) {
         const keypoints = poses[0].keypoints;
-        
         drawSkeleton(keypoints);
         
-        // Detectar curl de bíceps (codo izquierdo)
+        // Detectar curl de bíceps
         const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
         const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
         const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
@@ -130,8 +132,8 @@ async function detectPose() {
             leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
           
           const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-          
           const feedback = document.getElementById('feedback');
+          
           if (angle < 60) {
             feedback.textContent = '✅ ¡Bien! Sube el peso';
             feedback.style.color = '#51cf66';
@@ -142,68 +144,65 @@ async function detectPose() {
             feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
             feedback.style.color = '#ffd43b';
           }
-        } else {
-          const feedback = document.getElementById('feedback');
-          if (feedback.textContent === 'Preparando cámara...') {
-            feedback.textContent = '📹 Cámara lista - Muévete para detectar';
-            feedback.style.color = '#ffd43b';
-          }
         }
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 100)); // Pequeña pausa
+    } catch (error) {
+      console.error('Error detección:', error);
     }
-  } catch (error) {
-    console.error('Error en detección:', error);
-  } finally {
-    isDetecting = false;
+    
+    detectionLoop = requestAnimationFrame(loop);
   }
+  
+  loop();
 }
 
 // Botón para cambiar cámara
 document.getElementById('btn-rotate').addEventListener('click', async () => {
   const feedback = document.getElementById('feedback');
-  feedback.textContent = ' Cambiando cámara...';
+  feedback.textContent = '🔄 Cambiando cámara...';
   
-  // Cambiar entre frontal y trasera
+  // Detener detección actual
+  if (detectionLoop) {
+    cancelAnimationFrame(detectionLoop);
+    detectionLoop = null;
+  }
+  
+  // Cambiar modo de cámara
   facingMode = facingMode === 'user' ? 'environment' : 'user';
   
   try {
-    // Detener detección actual
-    isDetecting = false;
-    
-    // Reiniciar cámara
+    // Reiniciar todo
     await setupCamera();
-    
-    // Recargar modelo
     await loadModel();
     
-    feedback.textContent = '✅ Cámara cambiada';
+    feedback.textContent = '✅ Cámara lista';
     
-    // Reiniciar detección después de un momento
+    // Esperar un momento y reiniciar detección
     setTimeout(() => {
       detectPose();
-    }, 500);
+    }, 1000);
     
   } catch (error) {
-    feedback.textContent = ' Error al cambiar cámara';
-    console.error(error);
+    console.error('Error al cambiar:', error);
+    feedback.textContent = '❌ Error al cambiar cámara';
   }
 });
 
+// Inicialización
 async function init() {
   const feedback = document.getElementById('feedback');
   
   try {
+    feedback.textContent = '📹 Preparando cámara...';
     await setupCamera();
+    feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
-    feedback.textContent = '✅ Cámara lista';
-    await detectPose();
+    feedback.textContent = '✅ Listo';
+    detectPose();
   } catch (error) {
+    console.error('Error inicial:', error);
     feedback.textContent = '❌ Error al iniciar';
-    console.error(error);
   }
 }
 
-// Iniciar cuando la página cargue
 window.addEventListener('load', init);
