@@ -1,6 +1,7 @@
 let video, canvas, ctx, detector;
 let currentFacingMode = 'user'; 
 let isSwitching = false;
+let isRunning = false; // Control para que el bucle no se rompa
 
 // Variables del entrenamiento
 let selectedExercise = 'curl';
@@ -8,13 +9,13 @@ let targetSets = 3;
 let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
+let stage = 'down'; // Para contar reps: 'down' (brazo estirado) o 'up' (brazo encogido)
 
-// Referencias al DOM (Pantallas)
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const workoutInfo = document.getElementById('workout-info');
 
-// --- FUNCIONES DE CÁMARA E IA ---
+// --- CÁMARA E IA ---
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -56,10 +57,13 @@ function calculateAngle(a, b, c) {
   return angle;
 }
 
-function drawSkeleton(keypoints) {
+function drawSkeleton(keypoints, isBadPosture) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  ctx.fillStyle = '#00ff00';
+  // Color de los puntos y líneas (Verde si está bien, Rojo si está mal)
+  const color = isBadPosture ? '#ff0000' : '#00ff00';
+  
+  ctx.fillStyle = color;
   keypoints.forEach(kp => {
     if (kp.score > 0.3) {
       ctx.beginPath();
@@ -68,7 +72,7 @@ function drawSkeleton(keypoints) {
     }
   });
   
-  ctx.strokeStyle = '#00ff00';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   const connections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
@@ -91,10 +95,14 @@ function drawSkeleton(keypoints) {
   });
 }
 
+// --- BUCLE DE DETECCIÓN Y CONTEO ---
+
 async function detectPose() {
+  if (isRunning) return;
+  isRunning = true;
   const feedback = document.getElementById('feedback');
   
-  while (video.srcObject) {
+  while (isRunning) {
     if (isSwitching) { await new Promise(r => setTimeout(r, 100)); continue; }
 
     try {
@@ -102,23 +110,44 @@ async function detectPose() {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
-          drawSkeleton(keypoints);
           
-          // Lógica básica de ejemplo (la mejoraremos en la Fase 2)
+          let isBadPosture = false;
+          
           if (selectedExercise === 'curl') {
+            // Usamos el brazo izquierdo (puedes cambiar a right si prefieres)
             const ls = keypoints.find(k => k.name === 'left_shoulder');
             const le = keypoints.find(k => k.name === 'left_elbow');
             const lw = keypoints.find(k => k.name === 'left_wrist');
             
             if (ls && le && lw && ls.score > 0.3 && le.score > 0.3 && lw.score > 0.3) {
               const angle = calculateAngle(ls, le, lw);
-              if (angle < 60) feedback.textContent = '✅ ¡Bien! Sube';
-              else if (angle > 160) feedback.textContent = '⬇️ Baja más';
-              else feedback.textContent = `Ángulo: ${Math.round(angle)}°`;
+              
+              // LÓGICA DE CONTEO Y FEEDBACK PARA BÍCEPS
+              if (angle > 160) {
+                stage = 'down';
+                feedback.textContent = 'Brazo estirado. ¡Sube!';
+                feedback.style.color = '#ffd43b';
+              } else if (angle < 50) {
+                if (stage === 'down') {
+                  currentRep++;
+                  stage = 'up';
+                  updateInfoText();
+                  feedback.textContent = `✅ ¡Rep ${currentRep}! Baja controlado.`;
+                  feedback.style.color = '#51cf66';
+                } else {
+                  feedback.textContent = 'Bien, baja el peso.';
+                  feedback.style.color = '#51cf66';
+                }
+              } else {
+                feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
+                feedback.style.color = '#ffd43b';
+              }
             }
           } else {
-            feedback.textContent = `Haciendo: ${selectedExercise}`;
+            feedback.textContent = `Ejercicio: ${selectedExercise} (Lógica en desarrollo)`;
           }
+          
+          drawSkeleton(keypoints, isBadPosture);
         }
       }
     } catch (error) { console.error('Error detección:', error); }
@@ -126,7 +155,12 @@ async function detectPose() {
   }
 }
 
-// Botón Cambiar Cámara
+function updateInfoText() {
+  workoutInfo.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}/${targetReps}`;
+}
+
+// --- BOTONES ---
+
 document.getElementById('btn-rotate').addEventListener('click', async () => {
   if (isSwitching) return;
   isSwitching = true;
@@ -136,7 +170,6 @@ document.getElementById('btn-rotate').addEventListener('click', async () => {
   try {
     if (video.srcObject) {
       video.srcObject.getTracks().forEach(t => t.stop());
-      video.srcObject = null;
     }
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
     const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -156,8 +189,8 @@ document.getElementById('btn-rotate').addEventListener('click', async () => {
   } finally { isSwitching = false; }
 });
 
-// Botón Salir (Volver al menú)
 document.getElementById('btn-back').addEventListener('click', () => {
+  isRunning = false; // Detiene el bucle
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(t => t.stop());
     video.srcObject = null;
@@ -166,32 +199,28 @@ document.getElementById('btn-back').addEventListener('click', () => {
   setupScreen.style.display = 'block';
 });
 
-// Botón INICIAR ENTRENAMIENTO
 document.getElementById('btn-start').addEventListener('click', async () => {
-  // 1. Guardar datos del formulario
   selectedExercise = document.getElementById('exercise-select').value;
   targetSets = parseInt(document.getElementById('sets-input').value);
   targetReps = parseInt(document.getElementById('reps-input').value);
   currentSet = 1;
   currentRep = 0;
+  stage = 'down';
 
-  // 2. Actualizar texto de info
-  workoutInfo.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}/${targetReps}`;
+  updateInfoText();
 
-  // 3. Cambiar pantallas
   setupScreen.style.display = 'none';
   workoutScreen.style.display = 'block';
 
-  // 4. Iniciar cámara e IA
   const feedback = document.getElementById('feedback');
   try {
-    feedback.textContent = '📹 Preparando cámara...';
+    feedback.textContent = '📹 Preparando...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
-    feedback.textContent = '✅ Listo para entrenar';
+    feedback.textContent = '✅ Listo';
     detectPose();
   } catch (error) {
-    feedback.textContent = '❌ Error al iniciar';
+    feedback.textContent = '❌ Error';
   }
 });
