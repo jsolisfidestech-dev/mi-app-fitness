@@ -1,6 +1,5 @@
 let video, canvas, ctx, detector;
-let currentFacingMode = 'environment'; // Forzar cámara trasera al inicio
-let isRunning = false;
+let currentFacingMode = 'user'; // Cámara FRONTAL al inicio (para verse entrenando)
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -16,7 +15,7 @@ async function setupCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
       video: { 
-        facingMode: { exact: currentFacingMode },
+        facingMode: currentFacingMode,
         width: { ideal: 640 },
         height: { ideal: 480 }
       } 
@@ -32,30 +31,8 @@ async function setupCamera() {
       };
     });
   } catch (error) {
-    // Si falla con 'exact', intentar con 'ideal'
-    console.log('Reintentando con ideal...');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: currentFacingMode,
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        } 
-      });
-      
-      video.srcObject = stream;
-      
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          resolve();
-        };
-      });
-    } catch (error2) {
-      console.error('Error cámara:', error2);
-      throw error2;
-    }
+    console.error('Error cámara:', error);
+    throw error;
   }
 }
 
@@ -123,12 +100,9 @@ function drawSkeleton(keypoints) {
 }
 
 async function detectPose() {
-  if (isRunning) return;
-  isRunning = true;
-  
   const feedback = document.getElementById('feedback');
   
-  while (isRunning && video.srcObject) {
+  while (video.srcObject) {
     try {
       if (detector && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
@@ -164,40 +138,23 @@ async function detectPose() {
       console.error('Error detección:', error);
     }
     
-    // Pequeña pausa para no saturar
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  
-  isRunning = false;
 }
 
-// Botón para cambiar cámara
-document.getElementById('btn-rotate').addEventListener('click', async () => {
+// Botón para cambiar cámara - RECARGA LA PÁGINA (más confiable en móviles)
+document.getElementById('btn-rotate').addEventListener('click', () => {
   const feedback = document.getElementById('feedback');
+  feedback.textContent = '🔄 Cambiando cámara...';
   
-  // Detener detección actual
-  isRunning = false;
+  // Cambiar el modo de cámara en la URL
+  const newMode = currentFacingMode === 'user' ? 'environment' : 'user';
+  currentFacingMode = newMode;
   
-  // Cambiar modo de cámara
-  currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-  
-  feedback.textContent = '🔄 Cambiando...';
-  
-  try {
-    // Solo cambiar el stream de video, NO reiniciar el detector
-    await setupCamera();
-    
-    feedback.textContent = '✅ Cámara cambiada';
-    
-    // Reiniciar detección
-    setTimeout(() => {
-      detectPose();
-    }, 500);
-    
-  } catch (error) {
-    console.error('Error al cambiar:', error);
-    feedback.textContent = '❌ Error al cambiar cámara';
-  }
+  // Recargar la página con el nuevo modo
+  setTimeout(() => {
+    location.reload();
+  }, 500);
 });
 
 // Inicialización
@@ -205,7 +162,7 @@ async function init() {
   const feedback = document.getElementById('feedback');
   
   try {
-    feedback.textContent = '📹 Preparando cámara trasera...';
+    feedback.textContent = '📹 Preparando cámara frontal...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
@@ -213,7 +170,7 @@ async function init() {
     detectPose();
   } catch (error) {
     console.error('Error inicial:', error);
-    feedback.textContent = '❌ Error al iniciar';
+    feedback.textContent = ' Error al iniciar';
   }
 }
 
