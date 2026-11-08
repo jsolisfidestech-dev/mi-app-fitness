@@ -1,31 +1,49 @@
 let video, canvas, ctx, detector;
-let facingMode = 'user'; // 'user' = cámara frontal, 'environment' = trasera
+let facingMode = 'environment'; // 'environment' = cámara trasera (por defecto)
+let isDetecting = false;
 
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   
-  const stream = await navigator.mediaDevices.getUserMedia({ 
-    video: { 
-      facingMode: facingMode,
-      width: { ideal: 640 },
-      height: { ideal: 480 }
-    } 
-  });
-  video.srcObject = stream;
+  // Detener streams anteriores si existen
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop());
+  }
   
-  return new Promise(resolve => {
-    video.onloadedmetadata = () => {
-      // IMPORTANTE: El canvas debe tener las MISMAS dimensiones que el video real
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      resolve();
-    };
-  });
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        facingMode: facingMode,
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      } 
+    });
+    video.srcObject = stream;
+    
+    return new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        video.width = video.videoWidth;
+        video.height = video.videoHeight;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        resolve();
+      };
+    });
+  } catch (error) {
+    console.error('Error al acceder a la cámara:', error);
+    document.getElementById('feedback').textContent = ' Error de cámara';
+    throw error;
+  }
 }
 
 async function loadModel() {
+  // Cerrar detector anterior si existe
+  if (detector) {
+    await detector.close();
+  }
+  
   detector = await poseDetection.createDetector(
     poseDetection.SupportedModels.MoveNet,
     { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
@@ -33,6 +51,8 @@ async function loadModel() {
 }
 
 function calculateAngle(a, b, c) {
+  if (!a || !b || !c) return 0;
+  
   const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
   let angle = Math.abs(radians * 180 / Math.PI);
   if (angle > 180) angle = 360 - angle;
@@ -40,7 +60,6 @@ function calculateAngle(a, b, c) {
 }
 
 function drawSkeleton(keypoints) {
-  // Limpiar canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   // Dibujar puntos en las articulaciones
@@ -48,12 +67,12 @@ function drawSkeleton(keypoints) {
   keypoints.forEach(kp => {
     if (kp.score > 0.3) {
       ctx.beginPath();
-      ctx.arc(kp.x, kp.y, 10, 0, 2 * Math.PI);
+      ctx.arc(kp.x, kp.y, 8, 0, 2 * Math.PI);
       ctx.fill();
     }
   });
   
-  // Dibujar líneas conectando articulaciones (esqueleto)
+  // Dibujar líneas conectando articulaciones
   ctx.strokeStyle = '#00ff00';
   ctx.lineWidth = 3;
   
@@ -86,54 +105,105 @@ function drawSkeleton(keypoints) {
 }
 
 async function detectPose() {
-  const poses = await detector.estimatePoses(video);
+  if (isDetecting) return; // Evitar múltiples ejecuciones simultáneas
+  isDetecting = true;
   
-  if (poses.length > 0) {
-    const keypoints = poses[0].keypoints;
-    
-    // Dibujar el esqueleto completo
-    drawSkeleton(keypoints);
-    
-    // Detectar curl de bíceps (ángulo del codo izquierdo)
-    const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
-    const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
-    const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
-    
-    if (leftShoulder && leftElbow && leftWrist && 
-        leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
-      
-      const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-      
-      const feedback = document.getElementById('feedback');
-      if (angle < 60) {
-        feedback.textContent = '✅ ¡Bien! Sube el peso';
-        feedback.style.color = '#51cf66';
-      } else if (angle > 160) {
-        feedback.textContent = '⬇️ Baja más el peso';
-        feedback.style.color = '#ff6b6b';
-      } else {
-        feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
-        feedback.style.color = '#ffd43b';
+  try {
+    while (true) {
+      if (!detector || !video.srcObject) {
+        break;
       }
+      
+      const poses = await detector.estimatePoses(video);
+      
+      if (poses.length > 0) {
+        const keypoints = poses[0].keypoints;
+        
+        drawSkeleton(keypoints);
+        
+        // Detectar curl de bíceps (codo izquierdo)
+        const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
+        const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
+        const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
+        
+        if (leftShoulder && leftElbow && leftWrist && 
+            leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
+          
+          const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+          
+          const feedback = document.getElementById('feedback');
+          if (angle < 60) {
+            feedback.textContent = '✅ ¡Bien! Sube el peso';
+            feedback.style.color = '#51cf66';
+          } else if (angle > 160) {
+            feedback.textContent = '⬇️ Baja más el peso';
+            feedback.style.color = '#ff6b6b';
+          } else {
+            feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
+            feedback.style.color = '#ffd43b';
+          }
+        } else {
+          const feedback = document.getElementById('feedback');
+          if (feedback.textContent === 'Preparando cámara...') {
+            feedback.textContent = '📹 Cámara lista - Muévete para detectar';
+            feedback.style.color = '#ffd43b';
+          }
+        }
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100)); // Pequeña pausa
     }
+  } catch (error) {
+    console.error('Error en detección:', error);
+  } finally {
+    isDetecting = false;
   }
-  
-  requestAnimationFrame(detectPose);
 }
 
-// Botón para rotar cámara (frontal/trasera)
+// Botón para cambiar cámara
 document.getElementById('btn-rotate').addEventListener('click', async () => {
+  const feedback = document.getElementById('feedback');
+  feedback.textContent = ' Cambiando cámara...';
+  
+  // Cambiar entre frontal y trasera
   facingMode = facingMode === 'user' ? 'environment' : 'user';
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(track => track.stop());
+  
+  try {
+    // Detener detección actual
+    isDetecting = false;
+    
+    // Reiniciar cámara
+    await setupCamera();
+    
+    // Recargar modelo
+    await loadModel();
+    
+    feedback.textContent = '✅ Cámara cambiada';
+    
+    // Reiniciar detección después de un momento
+    setTimeout(() => {
+      detectPose();
+    }, 500);
+    
+  } catch (error) {
+    feedback.textContent = ' Error al cambiar cámara';
+    console.error(error);
   }
-  await setupCamera();
 });
 
 async function init() {
-  await setupCamera();
-  await loadModel();
-  detectPose();
+  const feedback = document.getElementById('feedback');
+  
+  try {
+    await setupCamera();
+    await loadModel();
+    feedback.textContent = '✅ Cámara lista';
+    await detectPose();
+  } catch (error) {
+    feedback.textContent = '❌ Error al iniciar';
+    console.error(error);
+  }
 }
 
-init();
+// Iniciar cuando la página cargue
+window.addEventListener('load', init);
