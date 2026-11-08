@@ -1,22 +1,11 @@
 let video, canvas, ctx, detector;
-
-// Leer de la URL qué cámara usar (frontal por defecto)
-function getCameraFromURL() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('cam') === 'back' ? 'environment' : 'user';
-}
-
-let currentFacingMode = getCameraFromURL();
+let currentFacingMode = 'user'; // Inicia con FRONTAL
+let isSwitching = false; // Control para evitar errores al cambiar
 
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
-  
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(track => track.stop());
-    video.srcObject = null;
-  }
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -53,7 +42,6 @@ async function loadModel() {
 
 function calculateAngle(a, b, c) {
   if (!a || !b || !c) return 0;
-  
   const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
   let angle = Math.abs(radians * 180 / Math.PI);
   if (angle > 180) angle = 360 - angle;
@@ -106,9 +94,15 @@ function drawSkeleton(keypoints) {
 async function detectPose() {
   const feedback = document.getElementById('feedback');
   
-  while (video.srcObject) {
+  while (true) {
+    // Si estamos cambiando de cámara, esperamos
+    if (isSwitching) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      continue;
+    }
+
     try {
-      if (detector && video.readyState === 4) {
+      if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
         
         if (poses.length > 0) {
@@ -145,15 +139,52 @@ async function detectPose() {
   }
 }
 
-// Botón para cambiar cámara: cambia la URL y recarga
-document.getElementById('btn-rotate').addEventListener('click', () => {
-  const params = new URLSearchParams(window.location.search);
-  const currentCam = params.get('cam') || 'front';
-  const newCam = currentCam === 'back' ? 'front' : 'back';
+// Botón para cambiar cámara (SIN recargar la página)
+document.getElementById('btn-rotate').addEventListener('click', async () => {
+  if (isSwitching) return; // Evita doble clic
   
-  // Actualizar URL con el nuevo parámetro
-  const newURL = window.location.pathname + '?cam=' + newCam + '&v=' + Date.now();
-  window.location.href = newURL;
+  isSwitching = true;
+  const feedback = document.getElementById('feedback');
+  feedback.textContent = '🔄 Cambiando cámara...';
+  
+  try {
+    // 1. Detener la cámara actual
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+    }
+    
+    // 2. Cambiar el modo
+    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    
+    // 3. Iniciar la nueva cámara
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        facingMode: currentFacingMode,
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      } 
+    });
+    
+    video.srcObject = stream;
+    
+    // 4. Esperar a que el video esté listo
+    await new Promise((resolve) => {
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        resolve();
+      };
+    });
+    
+    feedback.textContent = '✅ Cámara cambiada';
+    
+  } catch (error) {
+    console.error('Error al cambiar:', error);
+    feedback.textContent = '❌ Error al cambiar';
+  } finally {
+    isSwitching = false;
+  }
 });
 
 // Inicialización
@@ -161,8 +192,7 @@ async function init() {
   const feedback = document.getElementById('feedback');
   
   try {
-    const cameraName = currentFacingMode === 'user' ? 'frontal' : 'trasera';
-    feedback.textContent = `📹 Preparando cámara ${cameraName}...`;
+    feedback.textContent = '📹 Preparando cámara frontal...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
