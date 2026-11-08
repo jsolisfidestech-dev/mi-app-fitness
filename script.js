@@ -1,6 +1,6 @@
 let video, canvas, ctx, detector;
-let facingMode = 'environment'; // Cámara trasera por defecto
-let detectionLoop = null;
+let currentFacingMode = 'environment'; // Forzar cámara trasera al inicio
+let isRunning = false;
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -16,7 +16,7 @@ async function setupCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
       video: { 
-        facingMode: facingMode,
+        facingMode: { exact: currentFacingMode },
         width: { ideal: 640 },
         height: { ideal: 480 }
       } 
@@ -32,25 +32,40 @@ async function setupCamera() {
       };
     });
   } catch (error) {
-    console.error('Error cámara:', error);
-    throw error;
+    // Si falla con 'exact', intentar con 'ideal'
+    console.log('Reintentando con ideal...');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: currentFacingMode,
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        } 
+      });
+      
+      video.srcObject = stream;
+      
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          resolve();
+        };
+      });
+    } catch (error2) {
+      console.error('Error cámara:', error2);
+      throw error2;
+    }
   }
 }
 
 async function loadModel() {
-  // Cerrar detector anterior si existe
-  if (detector) {
-    try {
-      await detector.close();
-    } catch (e) {
-      console.log('Detector ya cerrado');
-    }
+  if (!detector) {
+    detector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+    );
   }
-  
-  detector = await poseDetection.createDetector(
-    poseDetection.SupportedModels.MoveNet,
-    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-  );
 }
 
 function calculateAngle(a, b, c) {
@@ -108,41 +123,40 @@ function drawSkeleton(keypoints) {
 }
 
 async function detectPose() {
-  // Detener loop anterior si existe
-  if (detectionLoop) {
-    cancelAnimationFrame(detectionLoop);
-  }
+  if (isRunning) return;
+  isRunning = true;
   
-  async function loop() {
-    if (!detector || !video.srcObject) return;
-    
+  const feedback = document.getElementById('feedback');
+  
+  while (isRunning && video.srcObject) {
     try {
-      const poses = await detector.estimatePoses(video);
-      
-      if (poses.length > 0) {
-        const keypoints = poses[0].keypoints;
-        drawSkeleton(keypoints);
+      if (detector && video.readyState === 4) {
+        const poses = await detector.estimatePoses(video);
         
-        // Detectar curl de bíceps
-        const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
-        const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
-        const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
-        
-        if (leftShoulder && leftElbow && leftWrist && 
-            leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+          drawSkeleton(keypoints);
           
-          const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-          const feedback = document.getElementById('feedback');
+          // Detectar curl de bíceps
+          const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
+          const leftElbow = keypoints.find(kp => kp.name === 'left_elbow');
+          const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
           
-          if (angle < 60) {
-            feedback.textContent = '✅ ¡Bien! Sube el peso';
-            feedback.style.color = '#51cf66';
-          } else if (angle > 160) {
-            feedback.textContent = '⬇️ Baja más el peso';
-            feedback.style.color = '#ff6b6b';
-          } else {
-            feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
-            feedback.style.color = '#ffd43b';
+          if (leftShoulder && leftElbow && leftWrist && 
+              leftShoulder.score > 0.3 && leftElbow.score > 0.3 && leftWrist.score > 0.3) {
+            
+            const angle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+            
+            if (angle < 60) {
+              feedback.textContent = '✅ ¡Bien! Sube el peso';
+              feedback.style.color = '#51cf66';
+            } else if (angle > 160) {
+              feedback.textContent = '⬇️ Baja más el peso';
+              feedback.style.color = '#ff6b6b';
+            } else {
+              feedback.textContent = `Ángulo codo: ${Math.round(angle)}°`;
+              feedback.style.color = '#ffd43b';
+            }
           }
         }
       }
@@ -150,37 +164,35 @@ async function detectPose() {
       console.error('Error detección:', error);
     }
     
-    detectionLoop = requestAnimationFrame(loop);
+    // Pequeña pausa para no saturar
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
   
-  loop();
+  isRunning = false;
 }
 
 // Botón para cambiar cámara
 document.getElementById('btn-rotate').addEventListener('click', async () => {
   const feedback = document.getElementById('feedback');
-  feedback.textContent = '🔄 Cambiando cámara...';
   
   // Detener detección actual
-  if (detectionLoop) {
-    cancelAnimationFrame(detectionLoop);
-    detectionLoop = null;
-  }
+  isRunning = false;
   
   // Cambiar modo de cámara
-  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+  
+  feedback.textContent = '🔄 Cambiando...';
   
   try {
-    // Reiniciar todo
+    // Solo cambiar el stream de video, NO reiniciar el detector
     await setupCamera();
-    await loadModel();
     
-    feedback.textContent = '✅ Cámara lista';
+    feedback.textContent = '✅ Cámara cambiada';
     
-    // Esperar un momento y reiniciar detección
+    // Reiniciar detección
     setTimeout(() => {
       detectPose();
-    }, 1000);
+    }, 500);
     
   } catch (error) {
     console.error('Error al cambiar:', error);
@@ -193,11 +205,11 @@ async function init() {
   const feedback = document.getElementById('feedback');
   
   try {
-    feedback.textContent = '📹 Preparando cámara...';
+    feedback.textContent = '📹 Preparando cámara trasera...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
-    feedback.textContent = '✅ Listo';
+    feedback.textContent = '✅ Listo para entrenar';
     detectPose();
   } catch (error) {
     console.error('Error inicial:', error);
