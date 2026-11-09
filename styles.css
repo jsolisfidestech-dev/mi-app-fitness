@@ -8,19 +8,24 @@ body {
   overflow-x: hidden;
 }
 
-/* ===== PANTALLA DE CONFIGURACIÓN ===== */
+/* ===== PANTALLA DE CONFIGURACIÓN (CENTRADA) ===== */
 #setup-screen {
-  padding: 12px 15px 20px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px 15px;
   max-width: 500px;
   margin: 0 auto;
 }
 
 .main-title {
   text-align: center;
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   color: white;
+  line-height: 1.2;
 }
 
 .title-ia {
@@ -31,14 +36,14 @@ body {
 .subtitle {
   text-align: center;
   color: #8899aa;
-  font-size: 14px;
-  margin-bottom: 12px;
+  font-size: 15px;
+  margin-bottom: 20px;
 }
 
 .main-card {
   background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
   border-radius: 20px;
-  padding: 16px;
+  padding: 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 
               inset 0 1px 0 rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -47,11 +52,11 @@ body {
 /* Tabs */
 .category-tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 16px;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
-  padding: 6px;
+  padding: 5px;
 }
 
 .tab {
@@ -59,11 +64,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 10px 5px;
+  gap: 3px;
+  padding: 10px 4px;
   background: transparent;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #8899aa;
   font-size: 11px;
   font-weight: 600;
@@ -80,7 +85,7 @@ body {
 .tab-icon { font-size: 20px; }
 
 /* Buscador */
-.search-container { margin-bottom: 12px; }
+.search-container { margin-bottom: 14px; }
 
 .field-label {
   display: block;
@@ -104,7 +109,7 @@ body {
   background: rgba(0, 0, 0, 0.3);
   border: 2px solid #00ff88;
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
 }
 
@@ -119,13 +124,13 @@ body {
 
 #exercise-search::placeholder { color: #8899aa; }
 
-.search-icon { font-size: 18px; margin-left: 8px; }
+.search-icon { font-size: 20px; margin-left: 8px; }
 
 .search-results {
   background: #243044;
   border-radius: 10px;
   margin-top: 5px;
-  max-height: 180px;
+  max-height: 200px;
   overflow-y: auto;
   display: none;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -137,7 +142,7 @@ body {
   padding: 10px 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   transition: background 0.2s;
@@ -159,7 +164,7 @@ body {
   font-size: 18px;
 }
 
-.search-result-item .name { font-size: 14px; color: white; }
+.search-result-item .name { font-size: 13px; color: white; }
 
 .selected-exercise {
   display: none;
@@ -167,8 +172,8 @@ body {
   border: 1px solid #00ff88;
   border-radius: 10px;
   padding: 10px 12px;
-  margin-top: 8px;
-  font-size: 14px;
+  margin-top: 6px;
+  font-size: 13px;
   color: #00ff88;
 }
 
@@ -181,7 +186,7 @@ body {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 12px 16px;
   background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%);
   border: none;
@@ -202,8 +207,8 @@ body {
 
 .info-badge {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  top: -6px;
+  right: -6px;
   background: #0066cc;
   border-radius: 50%;
   width: 22px;
@@ -211,7 +216,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 12px;
   border: 2px solid #1a2535;
 }
 
@@ -234,11 +239,11 @@ body {
 }
 
 .btn-minus, .btn-plus {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border: none;
-  border-radius: 10px;
-  font-size: 20px;
+  border-radius: 8px;
+  font-size: 22px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -278,7 +283,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   padding: 16px;
   background: linear-gradient(145deg, #00dd77 0%, #00aa55 100%);
   border: none;
@@ -331,7 +336,7 @@ body {
 
 .modal-content {
   background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
-  padding: 25px;
+  padding: 22px;
   border-radius: 16px;
   max-width: 90%;
   max-height: 80%;
@@ -356,35 +361,35 @@ body {
 .modal-content h2 {
   color: #00ff88;
   margin-top: 0;
-  margin-bottom: 15px;
-  font-size: 20px;
+  margin-bottom: 12px;
+  font-size: 19px;
 }
 
 .modal-body {
   color: white;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .modal-body .instruction-item {
-  margin-bottom: 12px;
-  padding: 12px;
+  margin-bottom: 10px;
+  padding: 10px;
   background: rgba(0, 0, 0, 0.3);
-  border-radius: 10px;
+  border-radius: 8px;
   border-left: 4px solid #00ff88;
 }
 
 .modal-body .emoji-big {
-  font-size: 24px;
+  font-size: 22px;
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .btn-primary {
   width: 100%;
-  padding: 14px;
-  font-size: 16px;
+  padding: 13px;
+  font-size: 15px;
   font-weight: 700;
   background: linear-gradient(145deg, #00dd77 0%, #00aa55 100%);
   color: white;
@@ -396,54 +401,66 @@ body {
 
 .btn-primary:active { transform: scale(0.98); }
 
-/* ===== PANTALLA DE ENTRENAMIENTO (MODO INMERSIVO) ===== */
+/* ===== PANTALLA DE ENTRENAMIENTO (SIN SCROLL) ===== */
 #workout-screen {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* Para móviles modernos */
   overflow: hidden;
-  background: linear-gradient(135deg, #1a2332 0%, #0d1420 100%);
+  background: #000;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
-/* Barra superior mínima */
+/* Barra superior fija */
 .top-bar {
-  padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.4);
-  flex-shrink: 0;
-  height: 40px;
   display: flex;
+  justify-content: flex-start;
   align-items: center;
+  padding: 8px 12px;
+  background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
+  flex-shrink: 0;
+  height: 44px;
+  z-index: 10;
 }
 
-.btn-icon {
-  background: rgba(74, 127, 181, 0.8);
+.btn-small {
+  background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%);
+  color: white;
   border: none;
+  padding: 8px 14px;
   border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(74, 127, 181, 0.3);
   transition: all 0.2s;
 }
 
-.btn-icon:active { transform: scale(0.95); }
+.btn-small:active { transform: scale(0.95); }
 
-/* Feedback compacto */
+/* Feedback */
 .feedback { 
-  font-size: 16px; 
+  font-size: 15px; 
   font-weight: 700; 
   padding: 8px 12px;
   text-align: center;
   background: rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
-  height: 36px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   white-space: nowrap;
+  z-index: 10;
 }
 
-/* Video grande con overlays */
+/* Video wrapper - ocupa TODO el espacio restante */
 .video-wrapper {
   flex: 1;
   display: flex;
@@ -452,27 +469,29 @@ body {
   overflow: hidden;
   position: relative;
   background: #000;
-  padding: 8px;
+  min-height: 0; /* Importante para que flex funcione bien */
 }
 
 .video-container {
   position: relative;
-  max-width: 100%;
-  max-height: 100%;
   width: 100%;
   height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 #video { 
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border: 3px solid #00ff88;
   border-radius: 14px;
   transform: scaleX(-1);
-  box-shadow: 0 0 30px rgba(0, 255, 136, 0.4),
-              0 10px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
 }
 
 #canvas { 
@@ -485,27 +504,27 @@ body {
   transform: scaleX(-1);
 }
 
-/* Overlay: Contador */
+/* Overlay: Contador sobre el video */
 .overlay-counter {
   position: absolute;
-  top: 15px;
-  left: 15px;
-  background: rgba(0, 0, 0, 0.7);
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.75);
   color: #ffd43b;
   padding: 8px 14px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 212, 59, 0.3);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  border: 1px solid rgba(255, 212, 59, 0.4);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
-/* Overlay: Botón cambiar cámara (ícono flotante) */
-.btn-camera-flip {
+/* Overlay: Botón cambiar cámara */
+.btn-rotate-overlay {
   position: absolute;
-  top: 15px;
-  right: 15px;
+  top: 12px;
+  right: 12px;
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
@@ -515,23 +534,21 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 10;
   transition: all 0.2s;
-  padding: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
-.btn-camera-flip:active { 
-  transform: scale(0.9);
+.btn-rotate-overlay:hover {
   background: rgba(0, 0, 0, 0.9);
 }
 
-/* Controles dinámicos (solo aparecen cuando es necesario) */
+.btn-rotate-overlay:active {
+  transform: scale(0.9);
+}
+
+/* Controles inferiores (solo aparecen cuando hay botones) */
 .controls {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
   background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
   padding: 12px 15px;
   display: flex;
@@ -540,13 +557,7 @@ body {
   flex-wrap: wrap;
   z-index: 100;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
-  min-height: 60px;
-  align-items: center;
-}
-
-.controls:empty {
-  display: none;
+  flex-shrink: 0;
 }
 
 .controls button {
@@ -565,7 +576,7 @@ body {
 .controls button:active { transform: scale(0.95); }
 
 #btn-next-set {
-  background: linear-gradient(145deg, #00dd77 0%, #00aa55 100%) !important;
+  background: linear-gradient(145deg, #00cc66 0%, #009944 100%) !important;
   font-weight: 700;
-  box-shadow: 0 4px 15px rgba(0, 221, 119, 0.5);
+  box-shadow: 0 4px 15px rgba(0, 204, 102, 0.5);
 }
