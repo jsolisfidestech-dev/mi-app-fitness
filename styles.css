@@ -10,20 +10,18 @@ body {
 
 /* ===== PANTALLA DE CONFIGURACIÓN ===== */
 #setup-screen {
-  padding: 20px 15px 30px;
+  padding: 12px 15px 20px;
   max-width: 500px;
   margin: 0 auto;
 }
 
 .main-title {
   text-align: center;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   color: white;
 }
-
-.title-icon { font-size: 32px; }
 
 .title-ia {
   color: #00ff88;
@@ -33,14 +31,14 @@ body {
 .subtitle {
   text-align: center;
   color: #8899aa;
-  font-size: 16px;
-  margin-bottom: 20px;
+  font-size: 14px;
+  margin-bottom: 12px;
 }
 
 .main-card {
   background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
   border-radius: 20px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 
               inset 0 1px 0 rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -50,7 +48,7 @@ body {
 .category-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
   padding: 6px;
@@ -82,14 +80,14 @@ body {
 .tab-icon { font-size: 20px; }
 
 /* Buscador */
-.search-container { margin-bottom: 15px; }
+.search-container { margin-bottom: 12px; }
 
 .field-label {
   display: block;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: white;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .field-sub {
@@ -106,7 +104,7 @@ body {
   background: rgba(0, 0, 0, 0.3);
   border: 2px solid #00ff88;
   border-radius: 12px;
-  padding: 12px 15px;
+  padding: 10px 12px;
   box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
 }
 
@@ -115,19 +113,19 @@ body {
   background: transparent;
   border: none;
   color: white;
-  font-size: 16px;
+  font-size: 15px;
   outline: none;
 }
 
 #exercise-search::placeholder { color: #8899aa; }
 
-.search-icon { font-size: 20px; margin-left: 8px; }
+.search-icon { font-size: 18px; margin-left: 8px; }
 
 .search-results {
   background: #243044;
   border-radius: 10px;
   margin-top: 5px;
-  max-height: 200px;
+  max-height: 180px;
   overflow-y: auto;
   display: none;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -136,7 +134,7 @@ body {
 .search-results.active { display: block; }
 
 .search-result-item {
-  padding: 12px 15px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -151,14 +149,14 @@ body {
 }
 
 .search-result-item .thumb {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   background: #1a2535;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .search-result-item .name { font-size: 14px; color: white; }
@@ -168,7 +166,7 @@ body {
   background: rgba(0, 255, 136, 0.1);
   border: 1px solid #00ff88;
   border-radius: 10px;
-  padding: 10px 15px;
+  padding: 10px 12px;
   margin-top: 8px;
   font-size: 14px;
   color: #00ff88;
@@ -184,15 +182,15 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 18px;
+  padding: 12px 16px;
   background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%);
   border: none;
   border-radius: 12px;
   color: white;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   position: relative;
   box-shadow: 0 4px 15px rgba(74, 127, 181, 0.4);
   transition: transform 0.2s;
@@ -200,7 +198,7 @@ body {
 
 .btn-guide:active { transform: scale(0.98); }
 
-.guide-icon { font-size: 22px; }
+.guide-icon { font-size: 20px; }
 
 .info-badge {
   position: absolute;
@@ -208,20 +206,20 @@ body {
   right: -8px;
   background: #0066cc;
   border-radius: 50%;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   border: 2px solid #1a2535;
 }
 
 /* Contadores */
 .counters-row {
   display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .counter-group { flex: 1; }
@@ -229,18 +227,18 @@ body {
 .counter-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
-  padding: 8px;
+  padding: 6px;
 }
 
 .btn-minus, .btn-plus {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 10px;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -266,11 +264,11 @@ body {
 .counter-value {
   flex: 1;
   text-align: center;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: white;
   background: rgba(0, 0, 0, 0.3);
-  padding: 8px;
+  padding: 6px;
   border-radius: 8px;
 }
 
@@ -281,12 +279,12 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 18px;
+  padding: 16px;
   background: linear-gradient(145deg, #00dd77 0%, #00aa55 100%);
   border: none;
   border-radius: 14px;
   color: white;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 6px 20px rgba(0, 221, 119, 0.5),
@@ -314,7 +312,7 @@ body {
   100% { transform: translateX(100%) rotate(45deg); }
 }
 
-.play-icon { font-size: 20px; }
+.play-icon { font-size: 18px; }
 
 /* ===== MODAL ===== */
 .modal {
@@ -398,7 +396,7 @@ body {
 
 .btn-primary:active { transform: scale(0.98); }
 
-/* ===== PANTALLA DE ENTRENAMIENTO (NUEVO ESTILO) ===== */
+/* ===== PANTALLA DE ENTRENAMIENTO (MODO INMERSIVO) ===== */
 #workout-screen {
   display: flex;
   flex-direction: column;
@@ -407,61 +405,45 @@ body {
   background: linear-gradient(135deg, #1a2332 0%, #0d1420 100%);
 }
 
-/* Barra superior estilo card */
+/* Barra superior mínima */
 .top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 15px;
-  background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.4);
   flex-shrink: 0;
-  z-index: 10;
+  height: 40px;
+  display: flex;
+  align-items: center;
 }
 
-.info-text { 
-  font-size: 15px; 
-  color: #ffd43b; 
-  font-weight: 700;
-  text-shadow: 0 0 10px rgba(255, 212, 59, 0.3);
-}
-
-/* Botones estilo unificado */
-.btn-small {
-  background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%);
-  color: white;
+.btn-icon {
+  background: rgba(74, 127, 181, 0.8);
   border: none;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 16px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(74, 127, 181, 0.3);
   transition: all 0.2s;
 }
 
-.btn-small:active { transform: scale(0.95); }
+.btn-icon:active { transform: scale(0.95); }
 
-/* Feedback con estilo card */
+/* Feedback compacto */
 .feedback { 
-  font-size: 17px; 
+  font-size: 16px; 
   font-weight: 700; 
-  padding: 12px 15px;
+  padding: 8px 12px;
   text-align: center;
-  background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
-  height: 48px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   white-space: nowrap;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
-/* Video con marco estilo premium */
+/* Video grande con overlays */
 .video-wrapper {
   flex: 1;
   display: flex;
@@ -470,19 +452,22 @@ body {
   overflow: hidden;
   position: relative;
   background: #000;
-  padding: 12px;
+  padding: 8px;
 }
 
 .video-container {
   position: relative;
   max-width: 100%;
   max-height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 #video { 
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   border: 3px solid #00ff88;
   border-radius: 14px;
   transform: scaleX(-1);
@@ -500,14 +485,55 @@ body {
   transform: scaleX(-1);
 }
 
-/* Controles inferiores estilo card */
+/* Overlay: Contador */
+.overlay-counter {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffd43b;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 212, 59, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Overlay: Botón cambiar cámara (ícono flotante) */
+.btn-camera-flip {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.btn-camera-flip:active { 
+  transform: scale(0.9);
+  background: rgba(0, 0, 0, 0.9);
+}
+
+/* Controles dinámicos (solo aparecen cuando es necesario) */
 .controls {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   background: linear-gradient(145deg, #243044 0%, #1a2535 100%);
-  padding: 14px 15px;
+  padding: 12px 15px;
   display: flex;
   justify-content: center;
   gap: 10px;
@@ -515,25 +541,31 @@ body {
   z-index: 100;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+  min-height: 60px;
+  align-items: center;
+}
+
+.controls:empty {
+  display: none;
 }
 
 .controls button {
-  background: linear-gradient(145deg, #3a4a63 0%, #2a3a50 100%);
+  background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%);
   color: white;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none;
   padding: 12px 20px;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(74, 127, 181, 0.4);
   transition: all 0.2s;
 }
 
 .controls button:active { transform: scale(0.95); }
 
 #btn-next-set {
-  background: linear-gradient(145deg, #4a7fb5 0%, #3568a0 100%) !important;
+  background: linear-gradient(145deg, #00dd77 0%, #00aa55 100%) !important;
   font-weight: 700;
-  box-shadow: 0 4px 15px rgba(74, 127, 181, 0.5);
+  box-shadow: 0 4px 15px rgba(0, 221, 119, 0.5);
 }

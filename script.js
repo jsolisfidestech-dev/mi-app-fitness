@@ -183,9 +183,8 @@ function updateInfoText() {
 }
 
 function showNextSetButton() {
-  const controls = document.querySelector('.controls');
-  const oldBtn = document.getElementById('btn-next-set');
-  if (oldBtn) return;
+  const controls = document.getElementById('dynamic-controls');
+  controls.innerHTML = '';
   
   let btn;
   if (currentSet < targetSets) {
@@ -212,8 +211,7 @@ function nextSet() {
   feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
   feedback.style.color = '#ffd43b';
   
-  const btn = document.getElementById('btn-next-set');
-  if (btn) btn.remove();
+  document.getElementById('dynamic-controls').innerHTML = '';
 }
 
 function finishWorkout() {
@@ -221,8 +219,7 @@ function finishWorkout() {
   feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
   feedback.style.color = '#00ff88';
   
-  const btn = document.getElementById('btn-next-set');
-  if (btn) btn.remove();
+  document.getElementById('dynamic-controls').innerHTML = '';
 }
 
 // ===== CONTROLES DE CÁMARA Y NAVEGACIÓN =====
@@ -263,8 +260,7 @@ document.getElementById('btn-back').addEventListener('click', () => {
   }
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
-  const btn = document.getElementById('btn-next-set');
-  if (btn) btn.remove();
+  document.getElementById('dynamic-controls').innerHTML = '';
 });
 
 // ===== NUEVO SISTEMA: BUSCADOR Y CONTADORES =====
@@ -302,7 +298,6 @@ searchInput.addEventListener('input', (e) => {
   
   searchResults.classList.add('active');
   
-  // Click en resultado
   searchResults.querySelectorAll('.search-result-item').forEach(item => {
     item.addEventListener('click', () => {
       const id = item.dataset.id;
@@ -316,12 +311,11 @@ searchInput.addEventListener('input', (e) => {
   });
 });
 
-// Tabs de categorías (visuales por ahora)
+// Tabs de categorías
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    // Filtrar ejercicios por categoría (funcionalidad futura)
   });
 });
 
@@ -467,7 +461,6 @@ window.addEventListener('click', (event) => {
   }
 });
 
-// Cerrar buscador al tocar fuera
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.search-container')) {
     searchResults.classList.remove('active');
