@@ -8,6 +8,7 @@ let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
+let voiceEnabled = true; // Control para activar/desactivar voz
 
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
@@ -24,12 +25,42 @@ const exercisesDB = [
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
 
+// Números en español para la voz
+const numbersInSpanish = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte'];
+
+// ===== SISTEMA DE VOZ Y VIBRACIÓN =====
+
+function speak(text) {
+  if (!voiceEnabled) return;
+  
+  // Cancelar cualquier voz anterior para no superponer
+  window.speechSynthesis.cancel();
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'es-ES'; // Español
+  utterance.rate = 1.1; // Un poco más rápido para no interrumpir el ejercicio
+  utterance.volume = 1;
+  
+  window.speechSynthesis.speak(utterance);
+}
+
+function vibrate(pattern) {
+  if (navigator.vibrate) {
+    navigator.vibrate(pattern);
+  }
+}
+
+// Patrones de vibración
+const VIBRATE_REP = [100]; // Vibración corta al completar rep
+const VIBRATE_ERROR = [200, 100, 200]; // Vibración doble al detectar error
+const VIBRATE_SET = [300]; // Vibración media al cambiar de serie
+const VIBRATE_FINISH = [500, 200, 500, 200, 500]; // Vibración larga al terminar
+
 // ===== ESCALADO INTELIGENTE DE COORDENADAS =====
 function scaleKeypoints(keypoints) {
   const videoWidth = video.videoWidth;
   const videoHeight = video.videoHeight;
   
-  // Detectar el formato de coordenadas automáticamente
   const maxX = Math.max(...keypoints.map(kp => kp.x));
   const maxY = Math.max(...keypoints.map(kp => kp.y));
   
@@ -37,26 +68,18 @@ function scaleKeypoints(keypoints) {
     let x, y;
     
     if (maxX <= 1.5 && maxY <= 1.5) {
-      // Coordenadas normalizadas (0-1)
       x = kp.x * videoWidth;
       y = kp.y * videoHeight;
     } else if (maxX <= 300 && maxY <= 300) {
-      // Coordenadas en espacio 256x256 (o similar)
       const inputSize = 256;
       x = (kp.x / inputSize) * videoWidth;
       y = (kp.y / inputSize) * videoHeight;
     } else {
-      // Ya están en píxeles del video
       x = kp.x;
       y = kp.y;
     }
     
-    return {
-      name: kp.name,
-      x: x,
-      y: y,
-      score: kp.score
-    };
+    return { name: kp.name, x: x, y: y, score: kp.score };
   });
 }
 
@@ -225,16 +248,24 @@ async function detectPose() {
                 stage = 'up';
                 updateInfoText();
                 
+                // VIBRACIÓN Y VOZ AL COMPLETAR REP
+                vibrate(VIBRATE_REP);
+                
                 if (currentRep === targetReps) {
                   feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
                   feedback.style.color = '#00ff88';
+                  speak('¡Meta cumplida!');
                   showNextSetButton();
                 } else if (currentRep > targetReps) {
                   feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
                   feedback.style.color = '#00ff88';
+                  speak('Extra');
                 } else {
                   feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
                   feedback.style.color = '#00ff88';
+                  // Decir el número de la rep
+                  const repText = numbersInSpanish[currentRep] || currentRep.toString();
+                  speak(repText);
                 }
               } else {
                 if (badParts.length === 0) feedback.textContent = 'Bien, bajá controlado.';
@@ -326,6 +357,9 @@ async function detectPose() {
           if (badParts.length > 0 && warningMessage) {
             feedback.textContent = warningMessage;
             feedback.style.color = '#ff4444';
+            // VIBRACIÓN Y VOZ AL DETECTAR ERROR
+            vibrate(VIBRATE_ERROR);
+            speak('Postura');
           }
           
           drawSkeleton(keypoints, badParts);
@@ -350,7 +384,7 @@ function showNextSetButton() {
   if (currentSet < targetSets) {
     btn = document.createElement('button');
     btn.id = 'btn-next-set';
-    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`;
+    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`
     btn.onclick = nextSet;
   } else {
     btn = document.createElement('button');
@@ -376,6 +410,11 @@ function nextSet() {
   const feedback = document.getElementById('feedback');
   feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
   feedback.style.color = '#ffd43b';
+  
+  // VIBRACIÓN Y VOZ AL CAMBIAR DE SERIE
+  vibrate(VIBRATE_SET);
+  const setText = numbersInSpanish[currentSet] || currentSet.toString();
+  speak(`Serie ${setText}`);
 }
 
 function finishWorkout() {
@@ -383,6 +422,10 @@ function finishWorkout() {
   feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
   feedback.style.color = '#00ff88';
   hideControlsBottom();
+  
+  // VIBRACIÓN Y VOZ AL TERMINAR
+  vibrate(VIBRATE_FINISH);
+  speak('¡Entrenamiento completado!');
 }
 
 document.getElementById('btn-rotate-overlay').addEventListener('click', async () => {
@@ -422,6 +465,7 @@ document.getElementById('btn-back').addEventListener('click', () => {
   hideControlsBottom();
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
+  window.speechSynthesis.cancel(); // Cancelar voz al salir
 });
 
 const searchInput = document.getElementById('exercise-search');
