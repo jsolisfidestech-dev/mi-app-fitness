@@ -14,6 +14,19 @@ const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const workoutInfo = document.getElementById('workout-info');
 
+// Base de datos de ejercicios
+const exercisesDB = [
+  { id: 'curl', name: 'Curl de Bíceps', icon: '💪', category: 'upper' },
+  { id: 'squat', name: 'Sentadilla', icon: '🦵', category: 'lower' },
+  { id: 'pushup', name: 'Flexiones', icon: '💪', category: 'upper' },
+  { id: 'bench_press', name: 'Press de Banca', icon: '🏋️', category: 'upper' },
+  { id: 'incline_press', name: 'Press Inclinado', icon: '📐', category: 'upper' },
+  { id: 'lat_pulldown', name: 'Jalón al Pecho', icon: '⬇️', category: 'upper' },
+  { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
+];
+
+// ===== FUNCIONES DE CÁMARA E IA =====
+
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
@@ -56,7 +69,7 @@ function calculateAngle(a, b, c) {
 
 function drawSkeleton(keypoints, isBadPosture) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const color = isBadPosture ? '#ff0000' : '#00ff00';
+  const color = isBadPosture ? '#ff0000' : '#00ff88';
   
   ctx.fillStyle = color;
   keypoints.forEach(kp => {
@@ -125,18 +138,18 @@ async function detectPose() {
                   
                   if (currentRep === targetReps) {
                     feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
-                    feedback.style.color = '#51cf66';
+                    feedback.style.color = '#00ff88';
                     showNextSetButton();
                   } else if (currentRep > targetReps) {
                     feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
-                    feedback.style.color = '#51cf66';
+                    feedback.style.color = '#00ff88';
                   } else {
                     feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
-                    feedback.style.color = '#51cf66';
+                    feedback.style.color = '#00ff88';
                   }
                 } else {
                   feedback.textContent = 'Bien, bajá controlado.';
-                  feedback.style.color = '#51cf66';
+                  feedback.style.color = '#00ff88';
                 }
               } else {
                 feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
@@ -206,11 +219,13 @@ function nextSet() {
 function finishWorkout() {
   const feedback = document.getElementById('feedback');
   feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
-  feedback.style.color = '#51cf66';
+  feedback.style.color = '#00ff88';
   
   const btn = document.getElementById('btn-next-set');
   if (btn) btn.remove();
 }
+
+// ===== CONTROLES DE CÁMARA Y NAVEGACIÓN =====
 
 document.getElementById('btn-rotate').addEventListener('click', async () => {
   if (isSwitching) return;
@@ -252,10 +267,93 @@ document.getElementById('btn-back').addEventListener('click', () => {
   if (btn) btn.remove();
 });
 
+// ===== NUEVO SISTEMA: BUSCADOR Y CONTADORES =====
+
+const searchInput = document.getElementById('exercise-search');
+const searchResults = document.getElementById('search-results');
+const exerciseSelect = document.getElementById('exercise-select');
+const selectedExerciseDiv = document.getElementById('selected-exercise');
+let setsValue = 3;
+let repsValue = 10;
+
+// Buscador de ejercicios
+searchInput.addEventListener('input', (e) => {
+  const query = e.target.value.toLowerCase().trim();
+  if (query.length === 0) {
+    searchResults.classList.remove('active');
+    return;
+  }
+  
+  const filtered = exercisesDB.filter(ex => 
+    ex.name.toLowerCase().includes(query)
+  );
+  
+  if (filtered.length === 0) {
+    searchResults.classList.remove('active');
+    return;
+  }
+  
+  searchResults.innerHTML = filtered.map(ex => `
+    <div class="search-result-item" data-id="${ex.id}">
+      <div class="thumb">${ex.icon}</div>
+      <div class="name">${ex.name}</div>
+    </div>
+  `).join('');
+  
+  searchResults.classList.add('active');
+  
+  // Click en resultado
+  searchResults.querySelectorAll('.search-result-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = item.dataset.id;
+      const ex = exercisesDB.find(e => e.id === id);
+      exerciseSelect.value = id;
+      selectedExerciseDiv.textContent = `${ex.name} ${ex.icon}`;
+      selectedExerciseDiv.classList.add('active');
+      searchInput.value = '';
+      searchResults.classList.remove('active');
+    });
+  });
+});
+
+// Tabs de categorías (visuales por ahora)
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    // Filtrar ejercicios por categoría (funcionalidad futura)
+  });
+});
+
+// Botones +/- para series
+document.querySelectorAll('.btn-minus[data-target="sets"], .btn-plus[data-target="sets"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('btn-minus')) {
+      if (setsValue > 1) setsValue--;
+    } else {
+      if (setsValue < 10) setsValue++;
+    }
+    document.getElementById('sets-display').textContent = setsValue;
+  });
+});
+
+// Botones +/- para reps
+document.querySelectorAll('.btn-minus[data-target="reps"], .btn-plus[data-target="reps"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('btn-minus')) {
+      if (repsValue > 1) repsValue--;
+    } else {
+      if (repsValue < 50) repsValue++;
+    }
+    document.getElementById('reps-display').textContent = repsValue;
+  });
+});
+
+// Botón iniciar
 document.getElementById('btn-start').addEventListener('click', async () => {
-  selectedExercise = document.getElementById('exercise-select').value;
-  targetSets = parseInt(document.getElementById('sets-input').value);
-  targetReps = parseInt(document.getElementById('reps-input').value);
+  selectedExercise = exerciseSelect.value;
+  targetSets = setsValue;
+  targetReps = repsValue;
   currentSet = 1;
   currentRep = 0;
   stage = 'down';
@@ -263,7 +361,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   updateInfoText();
 
   setupScreen.style.display = 'none';
-  workoutScreen.style.display = 'block';
+  workoutScreen.style.display = 'flex';
 
   const feedback = document.getElementById('feedback');
   try {
@@ -347,7 +445,7 @@ const exerciseInstructions = {
 };
 
 document.getElementById('btn-help').addEventListener('click', () => {
-  const exercise = document.getElementById('exercise-select').value;
+  const exercise = exerciseSelect.value;
   const instructions = exerciseInstructions[exercise];
   document.getElementById('modal-title').textContent = instructions.title;
   document.getElementById('modal-body').innerHTML = instructions.content;
@@ -366,5 +464,12 @@ window.addEventListener('click', (event) => {
   const modal = document.getElementById('help-modal');
   if (event.target === modal) {
     modal.style.display = 'none';
+  }
+});
+
+// Cerrar buscador al tocar fuera
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-container')) {
+    searchResults.classList.remove('active');
   }
 });

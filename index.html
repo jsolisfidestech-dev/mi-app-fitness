@@ -4,40 +4,88 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mi Personal Trainer IA</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 
   <!-- PANTALLA DE CONFIGURACIÓN -->
   <div id="setup-screen">
-    <h1>🏋️ Personal Trainer IA</h1>
-    <p>Configurá tu entrenamiento</p>
-    
-    <div class="form-group">
-      <label for="exercise-select">Ejercicio:</label>
-      <select id="exercise-select">
-        <option value="curl">Curl de Bíceps</option>
-        <option value="squat">Sentadilla</option>
-        <option value="pushup">Flexiones</option>
-        <option value="bench_press">Press de Banca</option>
-        <option value="incline_press">Press Inclinado</option>
-        <option value="lat_pulldown">Jalón al Pecho</option>
-        <option value="seated_row">Remo en V</option>
-      </select>
-      <button id="btn-help" class="btn-help">❓ Cómo ubicar el celular</button>
-    </div>
+    <h1 class="main-title">
+      <span class="title-icon">🏋️</span>
+      Personal Trainer <span class="title-ia">IA</span>
+    </h1>
+    <p class="subtitle">Configurá tu entrenamiento</p>
 
-    <div class="form-group">
-      <label for="sets-input">Series:</label>
-      <input type="number" id="sets-input" value="3" min="1" max="10">
-    </div>
+    <div class="main-card">
+      <!-- Tabs de categorías -->
+      <div class="category-tabs">
+        <button class="tab active" data-category="full">
+          <span class="tab-icon">🧍</span>
+          <span>Cuerpo Completo</span>
+        </button>
+        <button class="tab" data-category="upper">
+          <span class="tab-icon">💪</span>
+          <span>Superior</span>
+        </button>
+        <button class="tab" data-category="lower">
+          <span class="tab-icon">🦵</span>
+          <span>Inferior</span>
+        </button>
+      </div>
 
-    <div class="form-group">
-      <label for="reps-input">Repeticiones:</label>
-      <input type="number" id="reps-input" value="10" min="1" max="50">
-    </div>
+      <!-- Buscador de ejercicio -->
+      <div class="search-container">
+        <label class="field-label">Ejercicio:</label>
+        <div class="search-box">
+          <input type="text" id="exercise-search" placeholder="Buscar ejercicio..." autocomplete="off">
+          <span class="search-icon">🔍</span>
+        </div>
+        <div id="search-results" class="search-results"></div>
+        <select id="exercise-select" class="hidden-select">
+          <option value="curl">Curl de Bíceps</option>
+          <option value="squat">Sentadilla</option>
+          <option value="pushup">Flexiones</option>
+          <option value="bench_press">Press de Banca</option>
+          <option value="incline_press">Press Inclinado</option>
+          <option value="lat_pulldown">Jalón al Pecho</option>
+          <option value="seated_row">Remo en V</option>
+        </select>
+        <div id="selected-exercise" class="selected-exercise">Curl de Bíceps 💪</div>
+      </div>
 
-    <button id="btn-start" class="btn-primary">▶️ Iniciar Entrenamiento</button>
+      <!-- Botón de guía -->
+      <button id="btn-help" class="btn-guide">
+        <span class="guide-icon">📱</span>
+        <span>Guía de ubicación del celular</span>
+        <span class="info-badge">ℹ️</span>
+      </button>
+
+      <!-- Series y Repeticiones con botones +/- -->
+      <div class="counters-row">
+        <div class="counter-group">
+          <label class="field-label">Series: <span class="field-sub">set</span></label>
+          <div class="counter-controls">
+            <button class="btn-minus" data-target="sets">−</button>
+            <div class="counter-value" id="sets-display">3</div>
+            <button class="btn-plus" data-target="sets">+</button>
+          </div>
+        </div>
+        <div class="counter-group">
+          <label class="field-label">Repeticiones: <span class="field-sub">rep</span></label>
+          <div class="counter-controls">
+            <button class="btn-minus" data-target="reps">−</button>
+            <div class="counter-value" id="reps-display">10</div>
+            <button class="btn-plus" data-target="reps">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Botón iniciar -->
+      <button id="btn-start" class="btn-start">
+        <span class="play-icon">▶</span>
+        Iniciar Entrenamiento
+      </button>
+    </div>
   </div>
 
   <!-- MODAL DE INSTRUCCIONES -->
@@ -54,7 +102,7 @@
   <div id="workout-screen" style="display: none;">
     <div class="top-bar">
       <button id="btn-back" class="btn-small">⬅️ Salir</button>
-      <div id="workout-info" class="info-text">Serie 1/3 | Rep 0/10</div>
+      <div id="workout-info" class="info-text">Serie 1/3 | Rep 0</div>
     </div>
 
     <div class="feedback" id="feedback">Preparando...</div>
@@ -73,6 +121,6 @@
   
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="script.js?v=12"></script>
+  <script src="script.js?v=13"></script>
 </body>
 </html>
