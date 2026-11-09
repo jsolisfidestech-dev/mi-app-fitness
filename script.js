@@ -153,15 +153,38 @@ function distance(a, b) {
 }
 
 // ===== DIBUJO DEL ESQUELETO CON SINCRONIZACIÓN + PARTES EN ROJO =====
+// ===== DIBUJO DEL ESQUELETO CON SINCRONIZACIÓN CORRECTA =====
 function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const greenColor = '#00ff88';
   const redColor = '#ff4444';
   
-  // ===== APLICAR FILTRO DE SUAVIZADO A TODOS LOS KEYPOINTS =====
-  const smoothedKeypoints = keypoints.map(kp => 
-    smoothKeypoint(kp.name, kp.x, kp.y, kp.score)
-  );
+  // ===== CALCULAR ESCALADO REAL DEL VIDEO EN PANTALLA =====
+  const videoRect = video.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  
+  // Calcular cómo se escala el video con object-fit: contain
+  const scaleX = canvasRect.width / videoWidth;
+  const scaleY = canvasRect.height / videoHeight;
+  const scale = Math.min(scaleX, scaleY);
+  
+  const scaledWidth = videoWidth * scale;
+  const scaledHeight = videoHeight * scale;
+  
+  // Centrar el video en el canvas
+  const offsetX = (canvasRect.width - scaledWidth) / 2;
+  const offsetY = (canvasRect.height - scaledHeight) / 2;
+  
+  // Función para mapear coordenadas nativas a coordenadas del canvas
+  function mapToCanvas(x, y) {
+    return {
+      x: offsetX + x * scale,
+      y: offsetY + y * scale
+    };
+  }
   
   const allConnections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
@@ -174,29 +197,37 @@ function drawSkeleton(keypoints, badParts = []) {
   
   // Dibujar líneas
   allConnections.forEach(([start, end]) => {
-    const kp1 = smoothedKeypoints.find(kp => kp.name === start);
-    const kp2 = smoothedKeypoints.find(kp => kp.name === end);
+    const kp1 = keypoints.find(kp => kp.name === start);
+    const kp2 = keypoints.find(kp => kp.name === end);
     
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
       const isBad = badParts.includes(start) || badParts.includes(end);
       ctx.strokeStyle = isBad ? redColor : greenColor;
       ctx.lineWidth = isBad ? 6 : 3;
+      
+      // Mapear coordenadas antes de dibujar
+      const pos1 = mapToCanvas(kp1.x, kp1.y);
+      const pos2 = mapToCanvas(kp2.x, kp2.y);
+      
       ctx.beginPath();
-      // Las coordenadas ya están en el espacio nativo del canvas
-      ctx.moveTo(kp1.x, kp1.y);
-      ctx.lineTo(kp2.x, kp2.y);
+      ctx.moveTo(pos1.x, pos1.y);
+      ctx.lineTo(pos2.x, pos2.y);
       ctx.stroke();
     }
   });
   
   // Dibujar puntos
-  smoothedKeypoints.forEach(kp => {
+  keypoints.forEach(kp => {
     if (kp.score > 0.3) {
       const isBad = badParts.includes(kp.name);
       ctx.fillStyle = isBad ? redColor : greenColor;
       const radius = isBad ? 12 : 8;
+      
+      // Mapear coordenadas antes de dibujar
+      const pos = mapToCanvas(kp.x, kp.y);
+      
       ctx.beginPath();
-      ctx.arc(kp.x, kp.y, radius, 0, 2 * Math.PI);
+      ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
       ctx.fill();
     }
   });
