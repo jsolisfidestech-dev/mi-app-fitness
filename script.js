@@ -14,6 +14,7 @@ const workoutScreen = document.getElementById('workout-screen');
 const overlayCounter = document.getElementById('overlay-counter');
 const controlsBottom = document.getElementById('controls-bottom');
 
+// Base de datos de ejercicios
 const exercisesDB = [
   { id: 'curl', name: 'Curl de Bíceps', icon: '💪', category: 'upper' },
   { id: 'squat', name: 'Sentadilla', icon: '🦵', category: 'lower' },
@@ -23,6 +24,8 @@ const exercisesDB = [
   { id: 'lat_pulldown', name: 'Jalón al Pecho', icon: '⬇️', category: 'upper' },
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
+
+// ===== FUNCIONES DE CÁMARA E IA =====
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -64,6 +67,7 @@ function calculateAngle(a, b, c) {
   return angle;
 }
 
+// Dibuja el esqueleto: verde si está bien, rojo si hay mala postura
 function drawSkeleton(keypoints, isBadPosture) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const color = isBadPosture ? '#ff4444' : '#00ff88';
@@ -100,6 +104,8 @@ function drawSkeleton(keypoints, isBadPosture) {
   });
 }
 
+// ===== DETECCIÓN DE POSTURA CON LÓGICA CIENTÍFICA =====
+
 async function detectPose() {
   if (isRunning) return;
   isRunning = true;
@@ -114,7 +120,9 @@ async function detectPose() {
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
           let isBadPosture = false;
+          let warningMessage = '';
           
+          // ===== CURL DE BÍCEPS =====
           if (selectedExercise === 'curl') {
             const rs = keypoints.find(k => k.name === 'right_shoulder');
             const re = keypoints.find(k => k.name === 'right_elbow');
@@ -123,10 +131,22 @@ async function detectPose() {
             if (rs && re && rw && rs.score > 0.3 && re.score > 0.3 && rw.score > 0.3) {
               const angle = calculateAngle(rs, re, rw);
               
+              // Detectar si el codo se mueve hacia adelante (error común según ciencia)
+              const shoulderX = rs.x;
+              const elbowX = re.x;
+              const elbowForward = Math.abs(elbowX - shoulderX) > 50;
+              
+              if (elbowForward) {
+                isBadPosture = true;
+                warningMessage = '❌ No muevas el codo hacia adelante';
+              }
+              
               if (angle > 160) {
                 stage = 'down';
-                feedback.textContent = 'Brazo estirado. ¡Sube!';
-                feedback.style.color = '#ffd43b';
+                if (!isBadPosture) {
+                  feedback.textContent = 'Brazo estirado. ¡Sube!';
+                  feedback.style.color = '#ffd43b';
+                }
               } else if (angle < 50) {
                 if (stage === 'down') {
                   currentRep++;
@@ -145,26 +165,124 @@ async function detectPose() {
                     feedback.style.color = '#00ff88';
                   }
                 } else {
-                  feedback.textContent = 'Bien, bajá controlado.';
+                  if (!isBadPosture) feedback.textContent = 'Bien, bajá controlado.';
                   feedback.style.color = '#00ff88';
                 }
               } else {
-                feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
-                feedback.style.color = '#ffd43b';
+                if (!isBadPosture) {
+                  feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
+                  feedback.style.color = '#ffd43b';
+                }
               }
             }
-          } else {
-            let instruction = '';
-            if (selectedExercise === 'squat' || selectedExercise === 'pushup') {
-              instruction = '📱 Colocate de PERFIL para este ejercicio';
-            } else if (selectedExercise === 'bench_press' || selectedExercise === 'incline_press') {
-              instruction = '📱 Coloca el celular de PERFIL a la banca';
-            } else if (selectedExercise === 'lat_pulldown' || selectedExercise === 'seated_row') {
-              instruction = '📱 Coloca el celular de PERFIL a la máquina';
-            } else {
-              instruction = `Preparando: ${selectedExercise}`;
+          }
+          
+          // ===== SENTADILLA =====
+          else if (selectedExercise === 'squat') {
+            const hip = keypoints.find(k => k.name === 'left_hip');
+            const knee = keypoints.find(k => k.name === 'left_knee');
+            const ankle = keypoints.find(k => k.name === 'left_ankle');
+            const shoulder = keypoints.find(k => k.name === 'left_shoulder');
+            
+            if (hip && knee && ankle && hip.score > 0.3 && knee.score > 0.3 && ankle.score > 0.3) {
+              const kneeAngle = calculateAngle(hip, knee, ankle);
+              
+              // Según ciencia: 90° es óptimo. Más de 100° = profundidad insuficiente
+              if (kneeAngle > 100) {
+                isBadPosture = true;
+                warningMessage = '❌ Bajá más (llegá a 90°)';
+              }
+              
+              // Detectar espalda encorvada (hombro mucho más adelante que cadera)
+              if (shoulder && shoulder.score > 0.3) {
+                const shoulderForward = shoulder.x - hip.x;
+                if (shoulderForward > 60) {
+                  isBadPosture = true;
+                  warningMessage = '❌ Mantené la espalda recta';
+                }
+              }
+              
+              feedback.textContent = `Rodilla: ${Math.round(kneeAngle)}°`;
+              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
             }
-            feedback.textContent = instruction;
+          }
+          
+          // ===== FLEXIONES =====
+          else if (selectedExercise === 'pushup') {
+            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
+            const elbow = keypoints.find(k => k.name === 'right_elbow');
+            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            
+            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+              
+              // Según ciencia: 45° es el ángulo óptimo. Más de 70° = peligroso para hombros
+              const shoulderX = shoulder.x;
+              const elbowX = elbow.x;
+              const elbowFlared = Math.abs(elbowX - shoulderX) > 80;
+              
+              if (elbowFlared) {
+                isBadPosture = true;
+                warningMessage = '❌ Codos muy abiertos (usá 45°)';
+              }
+              
+              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
+              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
+            }
+          }
+          
+          // ===== PRESS DE BANCA / INCLINADO =====
+          else if (selectedExercise === 'bench_press' || selectedExercise === 'incline_press') {
+            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
+            const elbow = keypoints.find(k => k.name === 'right_elbow');
+            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            
+            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+              
+              // Según ciencia: 45-75° es seguro. Más de 80° = riesgo de lesión
+              if (elbowAngle > 80 && elbowAngle < 160) {
+                isBadPosture = true;
+                warningMessage = '❌ Codos muy abiertos (45-75°)';
+              }
+              
+              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
+              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
+            }
+          }
+          
+          // ===== JALÓN AL PECHO =====
+          else if (selectedExercise === 'lat_pulldown') {
+            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
+            const elbow = keypoints.find(k => k.name === 'right_elbow');
+            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            
+            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+              
+              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
+              feedback.style.color = '#ffd43b';
+            }
+          }
+          
+          // ===== REMO EN V =====
+          else if (selectedExercise === 'seated_row') {
+            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
+            const elbow = keypoints.find(k => k.name === 'right_elbow');
+            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            
+            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+              
+              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
+              feedback.style.color = '#ffd43b';
+            }
+          }
+          
+          // Mostrar mensaje de advertencia si hay mala postura
+          if (isBadPosture && warningMessage) {
+            feedback.textContent = warningMessage;
+            feedback.style.color = '#ff4444';
           }
           
           drawSkeleton(keypoints, isBadPosture);
@@ -224,7 +342,8 @@ function finishWorkout() {
   hideControlsBottom();
 }
 
-// Botón cambiar cámara (overlay)
+// ===== CONTROLES DE CÁMARA Y NAVEGACIÓN =====
+
 document.getElementById('btn-rotate-overlay').addEventListener('click', async () => {
   if (isSwitching) return;
   isSwitching = true;
@@ -253,7 +372,6 @@ document.getElementById('btn-rotate-overlay').addEventListener('click', async ()
   } finally { isSwitching = false; }
 });
 
-// Botón salir (overlay)
 document.getElementById('btn-back').addEventListener('click', () => {
   isRunning = false;
   if (video.srcObject) {
@@ -265,7 +383,8 @@ document.getElementById('btn-back').addEventListener('click', () => {
   setupScreen.style.display = 'block';
 });
 
-// Buscador y contadores
+// ===== BUSCADOR Y CONTADORES =====
+
 const searchInput = document.getElementById('exercise-search');
 const searchResults = document.getElementById('search-results');
 const exerciseSelect = document.getElementById('exercise-select');
@@ -365,7 +484,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   }
 });
 
-// Instrucciones
+// ===== SISTEMA DE INSTRUCCIONES =====
+
 const exerciseInstructions = {
   curl: {
     title: "🏋️ Curl de Bíceps",
@@ -377,15 +497,15 @@ const exerciseInstructions = {
   },
   pushup: {
     title: "💪 Flexiones",
-    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> En el suelo, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que bajes el pecho cerca del suelo</div>`
+    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> En el suelo, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45° óptimo) y que bajes el pecho cerca del suelo</div>`
   },
   bench_press: {
     title: "🏋️ Press de Banca",
-    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en la banca, cuerpo completo visible de lado</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (90° al bajar) y que la barra baje al pecho</div>`
+    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en la banca, cuerpo completo visible de lado</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45-75° seguro) y que la barra baje al pecho</div>`
   },
   incline_press: {
     title: "📐 Press Inclinado",
-    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca inclinada, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en banca a 30-45°, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que bajes la barra al pecho superior</div>`
+    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca inclinada, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en banca a 30°, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que bajes la barra al pecho superior</div>`
   },
   lat_pulldown: {
     title: "⬇️ Jalón al Pecho",
