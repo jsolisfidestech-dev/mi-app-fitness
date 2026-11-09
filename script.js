@@ -9,6 +9,86 @@ let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
 
+// ===== FILTRO DE SUAVIZADO (Low-Pass Filter) =====
+// Almacena las últimas 3 posiciones de cada articulación
+const keypointHistory = {};
+const HISTORY_SIZE = 3;
+const SMOOTHING_FACTOR = 0.5; // 0 = sin suavizado, 1 = muy suave
+
+function smoothKeypoint(name, x, y, score) {
+  if (!keypointHistory[name]) {
+    keypointHistory[name] = [];
+  }
+  
+  // Agregar nueva posición al historial
+  keypointHistory[name].push({ x, y, score });
+  
+  // Mantener solo las últimas N posiciones
+  if (keypointHistory[name].length > HISTORY_SIZE) {
+    keypointHistory[name].shift();
+  }
+  
+  // Calcular promedio ponderado
+  const history = keypointHistory[name];
+  let avgX = 0, avgY = 0, avgScore = 0;
+  
+  history.forEach((point, index) => {
+    const weight = (index + 1) / history.length; // Más peso a las posiciones recientes
+    avgX += point.x * weight;
+    avgY += point.y * weight;
+    avgScore += point.score * weight;
+  });
+  
+  // Aplicar factor de suavizado
+  const lastPoint = history[history.length - 1];
+  const smoothedX = lastPoint.x * (1 - SMOOTHING_FACTOR) + avgX * SMOOTHING_FACTOR;
+  const smoothedY = lastPoint.y * (1 - SMOOTHING_FACTOR) + avgY * SMOOTHING_FACTOR;
+  const smoothedScore = avgScore / history.length;
+  
+  return { name, x: smoothedX, y: smoothedY, score: smoothedScore };
+}
+
+// ===== SINCRONIZACIÓN CANVAS/VIDEO =====
+// Calcula el rectángulo real del video en pantalla (considerando object-fit: contain)
+function getVideoRenderRect() {
+  const videoRect = video.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  
+  // Dimensiones nativas del video
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  
+  // Calcular cómo se escala el video con object-fit: contain
+  const scaleX = canvasRect.width / videoWidth;
+  const scaleY = canvasRect.height / videoHeight;
+  const scale = Math.min(scaleX, scaleY); // contain usa el menor
+  
+  const scaledWidth = videoWidth * scale;
+  const scaledHeight = videoHeight * scale;
+  
+  // Centrar el video en el canvas
+  const offsetX = (canvasRect.width - scaledWidth) / 2;
+  const offsetY = (canvasRect.height - scaledHeight) / 2;
+  
+  return {
+    offsetX,
+    offsetY,
+    scaleX: scale,
+    scaleY: scale,
+    width: scaledWidth,
+    height: scaledHeight
+  };
+}
+
+// Convierte coordenadas nativas del video a coordenadas del canvas
+function mapToCanvas(x, y) {
+  const rect = getVideoRenderRect();
+  return {
+    x: rect.offsetX + x * rect.scaleX,
+    y: rect.offsetY + y * rect.scaleY
+  };
+}
+
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const overlayCounter = document.getElementById('overlay-counter');
@@ -29,6 +109,9 @@ async function setupCamera() {
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   
+  // Limpiar historial de suavizado al cambiar cámara
+  Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
+  
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
       video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } 
@@ -36,6 +119,7 @@ async function setupCamera() {
     video.srcObject = stream;
     return new Promise((resolve) => {
       video.onloadedmetadata = () => {
+        // Canvas con las dimensiones NATIVAS del video (para que las coordenadas de MoveNet coincidan)
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         resolve();
@@ -64,11 +148,20 @@ function calculateAngle(a, b, c) {
   return angle;
 }
 
-// ===== DIBUJO DEL ESQUELETO CON PARTES ESPECÍFICAS EN ROJO =====
+function distance(a, b) {
+  return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+}
+
+// ===== DIBUJO DEL ESQUELETO CON SINCRONIZACIÓN + PARTES EN ROJO =====
 function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const greenColor = '#00ff88';
   const redColor = '#ff4444';
+  
+  // ===== APLICAR FILTRO DE SUAVIZADO A TODOS LOS KEYPOINTS =====
+  const smoothedKeypoints = keypoints.map(kp => 
+    smoothKeypoint(kp.name, kp.x, kp.y, kp.score)
+  );
   
   const allConnections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
@@ -81,14 +174,15 @@ function drawSkeleton(keypoints, badParts = []) {
   
   // Dibujar líneas
   allConnections.forEach(([start, end]) => {
-    const kp1 = keypoints.find(kp => kp.name === start);
-    const kp2 = keypoints.find(kp => kp.name === end);
+    const kp1 = smoothedKeypoints.find(kp => kp.name === start);
+    const kp2 = smoothedKeypoints.find(kp => kp.name === end);
     
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
       const isBad = badParts.includes(start) || badParts.includes(end);
       ctx.strokeStyle = isBad ? redColor : greenColor;
       ctx.lineWidth = isBad ? 6 : 3;
       ctx.beginPath();
+      // Las coordenadas ya están en el espacio nativo del canvas
       ctx.moveTo(kp1.x, kp1.y);
       ctx.lineTo(kp2.x, kp2.y);
       ctx.stroke();
@@ -96,7 +190,7 @@ function drawSkeleton(keypoints, badParts = []) {
   });
   
   // Dibujar puntos
-  keypoints.forEach(kp => {
+  smoothedKeypoints.forEach(kp => {
     if (kp.score > 0.3) {
       const isBad = badParts.includes(kp.name);
       ctx.fillStyle = isBad ? redColor : greenColor;
@@ -106,6 +200,39 @@ function drawSkeleton(keypoints, badParts = []) {
       ctx.fill();
     }
   });
+}
+
+// ===== VERIFICAR UN SOLO BRAZO =====
+function checkArm(keypoints, side) {
+  const shoulder = keypoints.find(k => k.name === `${side}_shoulder`);
+  const elbow = keypoints.find(k => k.name === `${side}_elbow`);
+  const wrist = keypoints.find(k => k.name === `${side}_wrist`);
+  const hip = keypoints.find(k => k.name === `${side}_hip`);
+  
+  if (!shoulder || !elbow || !wrist || !hip) return { bad: false, parts: [], angle: 0 };
+  if (shoulder.score < 0.3 || elbow.score < 0.3 || wrist.score < 0.3) return { bad: false, parts: [], angle: 0 };
+  
+  const angle = calculateAngle(shoulder, elbow, wrist);
+  
+  // UMBRAL RELATIVO: 15% del ancho de hombros
+  const otherShoulder = keypoints.find(k => k.name === (side === 'left' ? 'right_shoulder' : 'left_shoulder'));
+  let shoulderWidth = 80;
+  if (otherShoulder && otherShoulder.score > 0.3) {
+    shoulderWidth = distance(shoulder, otherShoulder);
+  }
+  
+  const threshold = shoulderWidth * 0.15;
+  const elbowForward = Math.abs(elbow.x - shoulder.x) > threshold;
+  
+  if (elbowForward) {
+    return { 
+      bad: true, 
+      parts: [`${side}_shoulder`, `${side}_elbow`, `${side}_wrist`],
+      angle: angle
+    };
+  }
+  
+  return { bad: false, parts: [], angle: angle };
 }
 
 // ===== DETECCIÓN DE POSTURA =====
@@ -125,57 +252,57 @@ async function detectPose() {
           let badParts = [];
           let warningMessage = '';
           
-          // ===== CURL DE BÍCEPS =====
+          // ===== CURL DE BÍCEPS (AMBOS BRAZOS) =====
           if (selectedExercise === 'curl') {
-            const rs = keypoints.find(k => k.name === 'right_shoulder');
-            const re = keypoints.find(k => k.name === 'right_elbow');
-            const rw = keypoints.find(k => k.name === 'right_wrist');
+            const rightCheck = checkArm(keypoints, 'right');
+            const leftCheck = checkArm(keypoints, 'left');
             
-            if (rs && re && rw && rs.score > 0.3 && re.score > 0.3 && rw.score > 0.3) {
-              const angle = calculateAngle(rs, re, rw);
-              
-              // UMBRAL REDUCIDO: de 50 a 30 píxeles (más sensible)
-              const shoulderX = rs.x;
-              const elbowX = re.x;
-              const elbowForward = Math.abs(elbowX - shoulderX) > 30;
-              
-              if (elbowForward) {
-                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
-                warningMessage = '❌ No muevas el codo hacia adelante';
+            if (rightCheck.bad) {
+              badParts = badParts.concat(rightCheck.parts);
+              warningMessage = '❌ Codo derecho adelantado';
+            }
+            if (leftCheck.bad) {
+              badParts = badParts.concat(leftCheck.parts);
+              if (rightCheck.bad) {
+                warningMessage = '❌ Ambos codos adelantados';
+              } else {
+                warningMessage = '❌ Codo izquierdo adelantado';
               }
-              
-              if (angle > 160) {
-                stage = 'down';
-                if (badParts.length === 0) {
-                  feedback.textContent = 'Brazo estirado. ¡Sube!';
-                  feedback.style.color = '#ffd43b';
-                }
-              } else if (angle < 50) {
-                if (stage === 'down') {
-                  currentRep++;
-                  stage = 'up';
-                  updateInfoText();
-                  
-                  if (currentRep === targetReps) {
-                    feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
-                    feedback.style.color = '#00ff88';
-                    showNextSetButton();
-                  } else if (currentRep > targetReps) {
-                    feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
-                    feedback.style.color = '#00ff88';
-                  } else {
-                    feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
-                    feedback.style.color = '#00ff88';
-                  }
+            }
+            
+            const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
+            
+            if (avgAngle > 160) {
+              stage = 'down';
+              if (badParts.length === 0) {
+                feedback.textContent = 'Brazos estirados. ¡Subí!';
+                feedback.style.color = '#ffd43b';
+              }
+            } else if (avgAngle < 50) {
+              if (stage === 'down') {
+                currentRep++;
+                stage = 'up';
+                updateInfoText();
+                
+                if (currentRep === targetReps) {
+                  feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
+                  feedback.style.color = '#00ff88';
+                  showNextSetButton();
+                } else if (currentRep > targetReps) {
+                  feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
+                  feedback.style.color = '#00ff88';
                 } else {
-                  if (badParts.length === 0) feedback.textContent = 'Bien, bajá controlado.';
+                  feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
                   feedback.style.color = '#00ff88';
                 }
               } else {
-                if (badParts.length === 0) {
-                  feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
-                  feedback.style.color = '#ffd43b';
-                }
+                if (badParts.length === 0) feedback.textContent = 'Bien, bajá controlado.';
+                feedback.style.color = '#00ff88';
+              }
+            } else {
+              if (badParts.length === 0) {
+                feedback.textContent = `Subiendo... ${Math.round(avgAngle)}°`;
+                feedback.style.color = '#ffd43b';
               }
             }
           }
@@ -210,70 +337,54 @@ async function detectPose() {
           
           // ===== FLEXIONES =====
           else if (selectedExercise === 'pushup') {
-            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
-            const elbow = keypoints.find(k => k.name === 'right_elbow');
-            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            const rightCheck = checkArm(keypoints, 'right');
+            const leftCheck = checkArm(keypoints, 'left');
             
-            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              
-              const shoulderX = shoulder.x;
-              const elbowX = elbow.x;
-              const elbowFlared = Math.abs(elbowX - shoulderX) > 80;
-              
-              if (elbowFlared) {
-                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
-                warningMessage = '❌ Codos muy abiertos (usá 45°)';
-              }
-              
-              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
+            if (rightCheck.bad) badParts = badParts.concat(rightCheck.parts);
+            if (leftCheck.bad) badParts = badParts.concat(leftCheck.parts);
+            
+            if (badParts.length > 0) {
+              warningMessage = '❌ Codos muy abiertos (usá 45°)';
             }
+            
+            const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
+            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           }
           
           // ===== PRESS DE BANCA / INCLINADO =====
           else if (selectedExercise === 'bench_press' || selectedExercise === 'incline_press') {
-            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
-            const elbow = keypoints.find(k => k.name === 'right_elbow');
-            const wrist = keypoints.find(k => k.name === 'right_wrist');
+            const rightCheck = checkArm(keypoints, 'right');
+            const leftCheck = checkArm(keypoints, 'left');
             
-            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              
-              if (elbowAngle > 80 && elbowAngle < 160) {
-                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
-                warningMessage = '❌ Codos muy abiertos (45-75°)';
-              }
-              
-              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
+            if (rightCheck.bad) badParts = badParts.concat(rightCheck.parts);
+            if (leftCheck.bad) badParts = badParts.concat(leftCheck.parts);
+            
+            if (badParts.length > 0) {
+              warningMessage = '❌ Codos muy abiertos (45-75°)';
             }
+            
+            const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
+            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           }
           
           // ===== JALÓN AL PECHO =====
           else if (selectedExercise === 'lat_pulldown') {
-            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
-            const elbow = keypoints.find(k => k.name === 'right_elbow');
-            const wrist = keypoints.find(k => k.name === 'right_wrist');
-            
-            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = '#ffd43b';
-            }
+            const rightCheck = checkArm(keypoints, 'right');
+            const leftCheck = checkArm(keypoints, 'left');
+            const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
+            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.style.color = '#ffd43b';
           }
           
           // ===== REMO EN V =====
           else if (selectedExercise === 'seated_row') {
-            const shoulder = keypoints.find(k => k.name === 'right_shoulder');
-            const elbow = keypoints.find(k => k.name === 'right_elbow');
-            const wrist = keypoints.find(k => k.name === 'right_wrist');
-            
-            if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-              const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = '#ffd43b';
-            }
+            const rightCheck = checkArm(keypoints, 'right');
+            const leftCheck = checkArm(keypoints, 'left');
+            const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
+            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.style.color = '#ffd43b';
           }
           
           if (badParts.length > 0 && warningMessage) {
@@ -357,6 +468,8 @@ document.getElementById('btn-rotate-overlay').addEventListener('click', async ()
       video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        // Limpiar historial al cambiar cámara
+        Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
         resolve();
       };
     });
@@ -375,6 +488,8 @@ document.getElementById('btn-back').addEventListener('click', () => {
   hideControlsBottom();
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
+  // Limpiar historial al salir
+  Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
 });
 
 const searchInput = document.getElementById('exercise-search');
@@ -479,7 +594,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 const exerciseInstructions = {
   curl: {
     title: "🏋️ Curl de Bíceps",
-    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (debe llegar a 90° o menos)</div>`
+    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que no adelantes los codos</div>`
   },
   squat: {
     title: "🦵 Sentadilla",
