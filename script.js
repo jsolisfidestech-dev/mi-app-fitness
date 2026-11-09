@@ -8,7 +8,8 @@ let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
-let voiceEnabled = true; // Control para activar/desactivar voz
+let voiceEnabled = true;
+let audioContextInitialized = false;
 
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
@@ -17,7 +18,7 @@ const controlsBottom = document.getElementById('controls-bottom');
 
 const exercisesDB = [
   { id: 'curl', name: 'Curl de Bíceps', icon: '💪', category: 'upper' },
-  { id: 'squat', name: 'Sentadilla', icon: '🦵', category: 'lower' },
+  { id: 'squat', name: 'Sentadilla', icon: '', category: 'lower' },
   { id: 'pushup', name: 'Flexiones', icon: '💪', category: 'upper' },
   { id: 'bench_press', name: 'Press de Banca', icon: '🏋️', category: 'upper' },
   { id: 'incline_press', name: 'Press Inclinado', icon: '📐', category: 'upper' },
@@ -25,36 +26,78 @@ const exercisesDB = [
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
 
-// Números en español para la voz
 const numbersInSpanish = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte'];
 
-// ===== SISTEMA DE VOZ Y VIBRACIÓN =====
+// ===== SISTEMA DE VOZ Y VIBRACIÓN (COMPATIBLE CON iOS) =====
+
+function initAudio() {
+  if (audioContextInitialized) return;
+  
+  // Inicializar AudioContext para iOS (requiere interacción del usuario)
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      const audioCtx = new AudioContext();
+      audioCtx.resume();
+      audioContextInitialized = true;
+    }
+  } catch (e) {
+    console.log('AudioContext no soportado');
+  }
+}
 
 function speak(text) {
   if (!voiceEnabled) return;
   
-  // Cancelar cualquier voz anterior para no superponer
+  // Cancelar voz anterior
   window.speechSynthesis.cancel();
   
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'es-ES'; // Español
-  utterance.rate = 1.1; // Un poco más rápido para no interrumpir el ejercicio
+  utterance.lang = 'es-ES';
+  utterance.rate = 1.1;
   utterance.volume = 1;
   
-  window.speechSynthesis.speak(utterance);
-}
-
-function vibrate(pattern) {
-  if (navigator.vibrate) {
-    navigator.vibrate(pattern);
+  // En iOS, necesitamos asegurar que el speech synthesis esté disponible
+  if (window.speechSynthesis) {
+    window.speechSynthesis.speak(utterance);
   }
 }
 
-// Patrones de vibración
-const VIBRATE_REP = [100]; // Vibración corta al completar rep
-const VIBRATE_ERROR = [200, 100, 200]; // Vibración doble al detectar error
-const VIBRATE_SET = [300]; // Vibración media al cambiar de serie
-const VIBRATE_FINISH = [500, 200, 500, 200, 500]; // Vibración larga al terminar
+function vibrate(pattern) {
+  // iOS no soporta navigator.vibrate, usamos AudioContext como fallback
+  if (navigator.vibrate) {
+    navigator.vibrate(pattern);
+  } else {
+    // Fallback para iOS: crear un beep corto usando AudioContext
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext && audioContextInitialized) {
+        const audioCtx = new AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.frequency.value = 800; // 800 Hz
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.1);
+      }
+    } catch (e) {
+      console.log('Vibración/beep no disponible');
+    }
+  }
+}
+
+const VIBRATE_REP = [100];
+const VIBRATE_ERROR = [200, 100, 200];
+const VIBRATE_SET = [300];
+const VIBRATE_FINISH = [500, 200, 500, 200, 500];
 
 // ===== ESCALADO INTELIGENTE DE COORDENADAS =====
 function scaleKeypoints(keypoints) {
@@ -263,7 +306,6 @@ async function detectPose() {
                 } else {
                   feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
                   feedback.style.color = '#00ff88';
-                  // Decir el número de la rep
                   const repText = numbersInSpanish[currentRep] || currentRep.toString();
                   speak(repText);
                 }
@@ -357,7 +399,6 @@ async function detectPose() {
           if (badParts.length > 0 && warningMessage) {
             feedback.textContent = warningMessage;
             feedback.style.color = '#ff4444';
-            // VIBRACIÓN Y VOZ AL DETECTAR ERROR
             vibrate(VIBRATE_ERROR);
             speak('Postura');
           }
@@ -384,7 +425,7 @@ function showNextSetButton() {
   if (currentSet < targetSets) {
     btn = document.createElement('button');
     btn.id = 'btn-next-set';
-    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`
+    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`;
     btn.onclick = nextSet;
   } else {
     btn = document.createElement('button');
@@ -411,7 +452,6 @@ function nextSet() {
   feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
   feedback.style.color = '#ffd43b';
   
-  // VIBRACIÓN Y VOZ AL CAMBIAR DE SERIE
   vibrate(VIBRATE_SET);
   const setText = numbersInSpanish[currentSet] || currentSet.toString();
   speak(`Serie ${setText}`);
@@ -423,7 +463,6 @@ function finishWorkout() {
   feedback.style.color = '#00ff88';
   hideControlsBottom();
   
-  // VIBRACIÓN Y VOZ AL TERMINAR
   vibrate(VIBRATE_FINISH);
   speak('¡Entrenamiento completado!');
 }
@@ -465,7 +504,7 @@ document.getElementById('btn-back').addEventListener('click', () => {
   hideControlsBottom();
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
-  window.speechSynthesis.cancel(); // Cancelar voz al salir
+  window.speechSynthesis.cancel();
 });
 
 const searchInput = document.getElementById('exercise-search');
@@ -541,6 +580,9 @@ document.querySelectorAll('.btn-minus[data-target="reps"], .btn-plus[data-target
 });
 
 document.getElementById('btn-start').addEventListener('click', async () => {
+  // INICIALIZAR AUDIO CON LA PRIMERA INTERACCIÓN DEL USUARIO
+  initAudio();
+  
   selectedExercise = exerciseSelect.value;
   targetSets = setsValue;
   targetReps = repsValue;
@@ -570,7 +612,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 const exerciseInstructions = {
   curl: {
     title: "🏋️ Curl de Bíceps",
-    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que no adelantes los codos</div>`
+    content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big"></span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que no adelantes los codos</div>`
   },
   squat: {
     title: "🦵 Sentadilla",
