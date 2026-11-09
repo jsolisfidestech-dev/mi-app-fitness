@@ -24,19 +24,40 @@ const exercisesDB = [
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
 
-// ===== ESCALADO DE COORDENADAS DE MOVENET =====
-// MoveNet devuelve coordenadas en un espacio de 256x256
-// Necesitamos escalarlas al tamaño real del canvas
+// ===== ESCALADO INTELIGENTE DE COORDENADAS =====
 function scaleKeypoints(keypoints) {
   const videoWidth = video.videoWidth;
   const videoHeight = video.videoHeight;
   
-  return keypoints.map(kp => ({
-    name: kp.name,
-    x: (kp.x / 256) * videoWidth,
-    y: (kp.y / 256) * videoHeight,
-    score: kp.score
-  }));
+  // Detectar el formato de coordenadas automáticamente
+  const maxX = Math.max(...keypoints.map(kp => kp.x));
+  const maxY = Math.max(...keypoints.map(kp => kp.y));
+  
+  return keypoints.map(kp => {
+    let x, y;
+    
+    if (maxX <= 1.5 && maxY <= 1.5) {
+      // Coordenadas normalizadas (0-1)
+      x = kp.x * videoWidth;
+      y = kp.y * videoHeight;
+    } else if (maxX <= 300 && maxY <= 300) {
+      // Coordenadas en espacio 256x256 (o similar)
+      const inputSize = 256;
+      x = (kp.x / inputSize) * videoWidth;
+      y = (kp.y / inputSize) * videoHeight;
+    } else {
+      // Ya están en píxeles del video
+      x = kp.x;
+      y = kp.y;
+    }
+    
+    return {
+      name: kp.name,
+      x: x,
+      y: y,
+      score: kp.score
+    };
+  });
 }
 
 async function setupCamera() {
@@ -83,7 +104,6 @@ function distance(a, b) {
   return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
 }
 
-// ===== DIBUJO DEL ESQUELETO =====
 function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const greenColor = '#00ff88';
@@ -125,7 +145,6 @@ function drawSkeleton(keypoints, badParts = []) {
   });
 }
 
-// ===== VERIFICAR UN SOLO BRAZO =====
 function checkArm(keypoints, side) {
   const shoulder = keypoints.find(k => k.name === `${side}_shoulder`);
   const elbow = keypoints.find(k => k.name === `${side}_elbow`);
@@ -137,14 +156,13 @@ function checkArm(keypoints, side) {
   
   const angle = calculateAngle(shoulder, elbow, wrist);
   
-  // UMBRAL AUMENTADO: 25% del ancho de hombros (menos sensible)
   const otherShoulder = keypoints.find(k => k.name === (side === 'left' ? 'right_shoulder' : 'left_shoulder'));
   let shoulderWidth = 80;
   if (otherShoulder && otherShoulder.score > 0.3) {
     shoulderWidth = distance(shoulder, otherShoulder);
   }
   
-  const threshold = shoulderWidth * 0.25; // Aumentado de 0.15 a 0.25
+  const threshold = shoulderWidth * 0.25;
   const elbowForward = Math.abs(elbow.x - shoulder.x) > threshold;
   
   if (elbowForward) {
@@ -158,7 +176,6 @@ function checkArm(keypoints, side) {
   return { bad: false, parts: [], angle: angle };
 }
 
-// ===== DETECCIÓN DE POSTURA =====
 async function detectPose() {
   if (isRunning) return;
   isRunning = true;
@@ -171,14 +188,12 @@ async function detectPose() {
       if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
-          // ESCALAR COORDENADAS DE MOVENET (256x256) AL TAMAÑO DEL CANVAS
           const rawKeypoints = poses[0].keypoints;
           const keypoints = scaleKeypoints(rawKeypoints);
           
           let badParts = [];
           let warningMessage = '';
           
-          // ===== CURL DE BÍCEPS (AMBOS BRAZOS) =====
           if (selectedExercise === 'curl') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
@@ -233,7 +248,6 @@ async function detectPose() {
             }
           }
           
-          // ===== SENTADILLA =====
           else if (selectedExercise === 'squat') {
             const hip = keypoints.find(k => k.name === 'left_hip');
             const knee = keypoints.find(k => k.name === 'left_knee');
@@ -261,7 +275,6 @@ async function detectPose() {
             }
           }
           
-          // ===== FLEXIONES =====
           else if (selectedExercise === 'pushup') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
@@ -278,7 +291,6 @@ async function detectPose() {
             feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           }
           
-          // ===== PRESS DE BANCA / INCLINADO =====
           else if (selectedExercise === 'bench_press' || selectedExercise === 'incline_press') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
@@ -295,7 +307,6 @@ async function detectPose() {
             feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           }
           
-          // ===== JALÓN AL PECHO =====
           else if (selectedExercise === 'lat_pulldown') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
@@ -304,7 +315,6 @@ async function detectPose() {
             feedback.style.color = '#ffd43b';
           }
           
-          // ===== REMO EN V =====
           else if (selectedExercise === 'seated_row') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
