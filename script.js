@@ -14,7 +14,6 @@ const workoutScreen = document.getElementById('workout-screen');
 const overlayCounter = document.getElementById('overlay-counter');
 const controlsBottom = document.getElementById('controls-bottom');
 
-// Base de datos de ejercicios
 const exercisesDB = [
   { id: 'curl', name: 'Curl de Bíceps', icon: '💪', category: 'upper' },
   { id: 'squat', name: 'Sentadilla', icon: '🦵', category: 'lower' },
@@ -24,8 +23,6 @@ const exercisesDB = [
   { id: 'lat_pulldown', name: 'Jalón al Pecho', icon: '⬇️', category: 'upper' },
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
-
-// ===== FUNCIONES DE CÁMARA E IA =====
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -68,14 +65,11 @@ function calculateAngle(a, b, c) {
 }
 
 // ===== DIBUJO DEL ESQUELETO CON PARTES ESPECÍFICAS EN ROJO =====
-
 function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
   const greenColor = '#00ff88';
   const redColor = '#ff4444';
   
-  // Todas las conexiones del esqueleto
   const allConnections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
     ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
@@ -91,10 +85,9 @@ function drawSkeleton(keypoints, badParts = []) {
     const kp2 = keypoints.find(kp => kp.name === end);
     
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
-      // Si alguna de las dos partes está en badParts, pintar en rojo
       const isBad = badParts.includes(start) || badParts.includes(end);
       ctx.strokeStyle = isBad ? redColor : greenColor;
-      ctx.lineWidth = isBad ? 5 : 3; // Línea roja más gruesa para destacar
+      ctx.lineWidth = isBad ? 6 : 3;
       ctx.beginPath();
       ctx.moveTo(kp1.x, kp1.y);
       ctx.lineTo(kp2.x, kp2.y);
@@ -107,7 +100,7 @@ function drawSkeleton(keypoints, badParts = []) {
     if (kp.score > 0.3) {
       const isBad = badParts.includes(kp.name);
       ctx.fillStyle = isBad ? redColor : greenColor;
-      const radius = isBad ? 10 : 8; // Punto rojo más grande
+      const radius = isBad ? 12 : 8;
       ctx.beginPath();
       ctx.arc(kp.x, kp.y, radius, 0, 2 * Math.PI);
       ctx.fill();
@@ -115,8 +108,7 @@ function drawSkeleton(keypoints, badParts = []) {
   });
 }
 
-// ===== DETECCIÓN DE POSTURA CON LÓGICA CIENTÍFICA =====
-
+// ===== DETECCIÓN DE POSTURA =====
 async function detectPose() {
   if (isRunning) return;
   isRunning = true;
@@ -130,7 +122,7 @@ async function detectPose() {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
-          let badParts = []; // Array de partes del cuerpo con mala postura
+          let badParts = [];
           let warningMessage = '';
           
           // ===== CURL DE BÍCEPS =====
@@ -142,13 +134,12 @@ async function detectPose() {
             if (rs && re && rw && rs.score > 0.3 && re.score > 0.3 && rw.score > 0.3) {
               const angle = calculateAngle(rs, re, rw);
               
-              // Detectar si el codo se mueve hacia adelante
+              // UMBRAL REDUCIDO: de 50 a 30 píxeles (más sensible)
               const shoulderX = rs.x;
               const elbowX = re.x;
-              const elbowForward = Math.abs(elbowX - shoulderX) > 50;
+              const elbowForward = Math.abs(elbowX - shoulderX) > 30;
               
               if (elbowForward) {
-                // Solo el brazo derecho en rojo
                 badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
                 warningMessage = '❌ No muevas el codo hacia adelante';
               }
@@ -200,7 +191,6 @@ async function detectPose() {
               const kneeAngle = calculateAngle(hip, knee, ankle);
               
               if (kneeAngle > 100) {
-                // Solo la pierna izquierda en rojo
                 badParts = ['left_hip', 'left_knee', 'left_ankle'];
                 warningMessage = '❌ Bajá más (llegá a 90°)';
               }
@@ -208,7 +198,6 @@ async function detectPose() {
               if (shoulder && shoulder.score > 0.3) {
                 const shoulderForward = shoulder.x - hip.x;
                 if (shoulderForward > 60) {
-                  // Espalda en rojo
                   badParts = ['left_shoulder', 'left_hip'];
                   warningMessage = '❌ Mantené la espalda recta';
                 }
@@ -287,7 +276,6 @@ async function detectPose() {
             }
           }
           
-          // Mostrar mensaje de advertencia
           if (badParts.length > 0 && warningMessage) {
             feedback.textContent = warningMessage;
             feedback.style.color = '#ff4444';
@@ -350,8 +338,6 @@ function finishWorkout() {
   hideControlsBottom();
 }
 
-// ===== CONTROLES DE CÁMARA Y NAVEGACIÓN =====
-
 document.getElementById('btn-rotate-overlay').addEventListener('click', async () => {
   if (isSwitching) return;
   isSwitching = true;
@@ -390,8 +376,6 @@ document.getElementById('btn-back').addEventListener('click', () => {
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
 });
-
-// ===== BUSCADOR Y CONTADORES =====
 
 const searchInput = document.getElementById('exercise-search');
 const searchResults = document.getElementById('search-results');
@@ -491,8 +475,6 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     feedback.textContent = '❌ Error';
   }
 });
-
-// ===== SISTEMA DE INSTRUCCIONES =====
 
 const exerciseInstructions = {
   curl: {
