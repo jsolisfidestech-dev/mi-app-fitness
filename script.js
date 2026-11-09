@@ -9,86 +9,6 @@ let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
 
-// ===== FILTRO DE SUAVIZADO (Low-Pass Filter) =====
-// Almacena las últimas 3 posiciones de cada articulación
-const keypointHistory = {};
-const HISTORY_SIZE = 3;
-const SMOOTHING_FACTOR = 0.5; // 0 = sin suavizado, 1 = muy suave
-
-function smoothKeypoint(name, x, y, score) {
-  if (!keypointHistory[name]) {
-    keypointHistory[name] = [];
-  }
-  
-  // Agregar nueva posición al historial
-  keypointHistory[name].push({ x, y, score });
-  
-  // Mantener solo las últimas N posiciones
-  if (keypointHistory[name].length > HISTORY_SIZE) {
-    keypointHistory[name].shift();
-  }
-  
-  // Calcular promedio ponderado
-  const history = keypointHistory[name];
-  let avgX = 0, avgY = 0, avgScore = 0;
-  
-  history.forEach((point, index) => {
-    const weight = (index + 1) / history.length; // Más peso a las posiciones recientes
-    avgX += point.x * weight;
-    avgY += point.y * weight;
-    avgScore += point.score * weight;
-  });
-  
-  // Aplicar factor de suavizado
-  const lastPoint = history[history.length - 1];
-  const smoothedX = lastPoint.x * (1 - SMOOTHING_FACTOR) + avgX * SMOOTHING_FACTOR;
-  const smoothedY = lastPoint.y * (1 - SMOOTHING_FACTOR) + avgY * SMOOTHING_FACTOR;
-  const smoothedScore = avgScore / history.length;
-  
-  return { name, x: smoothedX, y: smoothedY, score: smoothedScore };
-}
-
-// ===== SINCRONIZACIÓN CANVAS/VIDEO =====
-// Calcula el rectángulo real del video en pantalla (considerando object-fit: contain)
-function getVideoRenderRect() {
-  const videoRect = video.getBoundingClientRect();
-  const canvasRect = canvas.getBoundingClientRect();
-  
-  // Dimensiones nativas del video
-  const videoWidth = video.videoWidth;
-  const videoHeight = video.videoHeight;
-  
-  // Calcular cómo se escala el video con object-fit: contain
-  const scaleX = canvasRect.width / videoWidth;
-  const scaleY = canvasRect.height / videoHeight;
-  const scale = Math.min(scaleX, scaleY); // contain usa el menor
-  
-  const scaledWidth = videoWidth * scale;
-  const scaledHeight = videoHeight * scale;
-  
-  // Centrar el video en el canvas
-  const offsetX = (canvasRect.width - scaledWidth) / 2;
-  const offsetY = (canvasRect.height - scaledHeight) / 2;
-  
-  return {
-    offsetX,
-    offsetY,
-    scaleX: scale,
-    scaleY: scale,
-    width: scaledWidth,
-    height: scaledHeight
-  };
-}
-
-// Convierte coordenadas nativas del video a coordenadas del canvas
-function mapToCanvas(x, y) {
-  const rect = getVideoRenderRect();
-  return {
-    x: rect.offsetX + x * rect.scaleX,
-    y: rect.offsetY + y * rect.scaleY
-  };
-}
-
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const overlayCounter = document.getElementById('overlay-counter');
@@ -104,13 +24,25 @@ const exercisesDB = [
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
 
+// ===== ESCALADO DE COORDENADAS DE MOVENET =====
+// MoveNet devuelve coordenadas en un espacio de 256x256
+// Necesitamos escalarlas al tamaño real del canvas
+function scaleKeypoints(keypoints) {
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  
+  return keypoints.map(kp => ({
+    name: kp.name,
+    x: (kp.x / 256) * videoWidth,
+    y: (kp.y / 256) * videoHeight,
+    score: kp.score
+  }));
+}
+
 async function setupCamera() {
   video = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
-  
-  // Limpiar historial de suavizado al cambiar cámara
-  Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -119,7 +51,6 @@ async function setupCamera() {
     video.srcObject = stream;
     return new Promise((resolve) => {
       video.onloadedmetadata = () => {
-        // Canvas con las dimensiones NATIVAS del video (para que las coordenadas de MoveNet coincidan)
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         resolve();
@@ -152,39 +83,11 @@ function distance(a, b) {
   return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
 }
 
-// ===== DIBUJO DEL ESQUELETO CON SINCRONIZACIÓN + PARTES EN ROJO =====
-// ===== DIBUJO DEL ESQUELETO CON SINCRONIZACIÓN CORRECTA =====
+// ===== DIBUJO DEL ESQUELETO =====
 function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const greenColor = '#00ff88';
   const redColor = '#ff4444';
-  
-  // ===== CALCULAR ESCALADO REAL DEL VIDEO EN PANTALLA =====
-  const videoRect = video.getBoundingClientRect();
-  const canvasRect = canvas.getBoundingClientRect();
-  
-  const videoWidth = video.videoWidth;
-  const videoHeight = video.videoHeight;
-  
-  // Calcular cómo se escala el video con object-fit: contain
-  const scaleX = canvasRect.width / videoWidth;
-  const scaleY = canvasRect.height / videoHeight;
-  const scale = Math.min(scaleX, scaleY);
-  
-  const scaledWidth = videoWidth * scale;
-  const scaledHeight = videoHeight * scale;
-  
-  // Centrar el video en el canvas
-  const offsetX = (canvasRect.width - scaledWidth) / 2;
-  const offsetY = (canvasRect.height - scaledHeight) / 2;
-  
-  // Función para mapear coordenadas nativas a coordenadas del canvas
-  function mapToCanvas(x, y) {
-    return {
-      x: offsetX + x * scale,
-      y: offsetY + y * scale
-    };
-  }
   
   const allConnections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
@@ -195,7 +98,6 @@ function drawSkeleton(keypoints, badParts = []) {
     ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
   ];
   
-  // Dibujar líneas
   allConnections.forEach(([start, end]) => {
     const kp1 = keypoints.find(kp => kp.name === start);
     const kp2 = keypoints.find(kp => kp.name === end);
@@ -204,30 +106,20 @@ function drawSkeleton(keypoints, badParts = []) {
       const isBad = badParts.includes(start) || badParts.includes(end);
       ctx.strokeStyle = isBad ? redColor : greenColor;
       ctx.lineWidth = isBad ? 6 : 3;
-      
-      // Mapear coordenadas antes de dibujar
-      const pos1 = mapToCanvas(kp1.x, kp1.y);
-      const pos2 = mapToCanvas(kp2.x, kp2.y);
-      
       ctx.beginPath();
-      ctx.moveTo(pos1.x, pos1.y);
-      ctx.lineTo(pos2.x, pos2.y);
+      ctx.moveTo(kp1.x, kp1.y);
+      ctx.lineTo(kp2.x, kp2.y);
       ctx.stroke();
     }
   });
   
-  // Dibujar puntos
   keypoints.forEach(kp => {
     if (kp.score > 0.3) {
       const isBad = badParts.includes(kp.name);
       ctx.fillStyle = isBad ? redColor : greenColor;
       const radius = isBad ? 12 : 8;
-      
-      // Mapear coordenadas antes de dibujar
-      const pos = mapToCanvas(kp.x, kp.y);
-      
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
+      ctx.arc(kp.x, kp.y, radius, 0, 2 * Math.PI);
       ctx.fill();
     }
   });
@@ -245,14 +137,14 @@ function checkArm(keypoints, side) {
   
   const angle = calculateAngle(shoulder, elbow, wrist);
   
-  // UMBRAL RELATIVO: 15% del ancho de hombros
+  // UMBRAL AUMENTADO: 25% del ancho de hombros (menos sensible)
   const otherShoulder = keypoints.find(k => k.name === (side === 'left' ? 'right_shoulder' : 'left_shoulder'));
   let shoulderWidth = 80;
   if (otherShoulder && otherShoulder.score > 0.3) {
     shoulderWidth = distance(shoulder, otherShoulder);
   }
   
-  const threshold = shoulderWidth * 0.15;
+  const threshold = shoulderWidth * 0.25; // Aumentado de 0.15 a 0.25
   const elbowForward = Math.abs(elbow.x - shoulder.x) > threshold;
   
   if (elbowForward) {
@@ -279,7 +171,10 @@ async function detectPose() {
       if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
-          const keypoints = poses[0].keypoints;
+          // ESCALAR COORDENADAS DE MOVENET (256x256) AL TAMAÑO DEL CANVAS
+          const rawKeypoints = poses[0].keypoints;
+          const keypoints = scaleKeypoints(rawKeypoints);
+          
           let badParts = [];
           let warningMessage = '';
           
@@ -499,8 +394,6 @@ document.getElementById('btn-rotate-overlay').addEventListener('click', async ()
       video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        // Limpiar historial al cambiar cámara
-        Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
         resolve();
       };
     });
@@ -519,8 +412,6 @@ document.getElementById('btn-back').addEventListener('click', () => {
   hideControlsBottom();
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
-  // Limpiar historial al salir
-  Object.keys(keypointHistory).forEach(key => delete keypointHistory[key]);
 });
 
 const searchInput = document.getElementById('exercise-search');
