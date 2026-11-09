@@ -67,23 +67,16 @@ function calculateAngle(a, b, c) {
   return angle;
 }
 
-// Dibuja el esqueleto: verde si está bien, rojo si hay mala postura
-function drawSkeleton(keypoints, isBadPosture) {
+// ===== DIBUJO DEL ESQUELETO CON PARTES ESPECÍFICAS EN ROJO =====
+
+function drawSkeleton(keypoints, badParts = []) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const color = isBadPosture ? '#ff4444' : '#00ff88';
   
-  ctx.fillStyle = color;
-  keypoints.forEach(kp => {
-    if (kp.score > 0.3) {
-      ctx.beginPath();
-      ctx.arc(kp.x, kp.y, 8, 0, 2 * Math.PI);
-      ctx.fill();
-    }
-  });
+  const greenColor = '#00ff88';
+  const redColor = '#ff4444';
   
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
-  const connections = [
+  // Todas las conexiones del esqueleto
+  const allConnections = [
     ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
     ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
     ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
@@ -92,14 +85,32 @@ function drawSkeleton(keypoints, isBadPosture) {
     ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
   ];
   
-  connections.forEach(([start, end]) => {
+  // Dibujar líneas
+  allConnections.forEach(([start, end]) => {
     const kp1 = keypoints.find(kp => kp.name === start);
     const kp2 = keypoints.find(kp => kp.name === end);
+    
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
+      // Si alguna de las dos partes está en badParts, pintar en rojo
+      const isBad = badParts.includes(start) || badParts.includes(end);
+      ctx.strokeStyle = isBad ? redColor : greenColor;
+      ctx.lineWidth = isBad ? 5 : 3; // Línea roja más gruesa para destacar
       ctx.beginPath();
       ctx.moveTo(kp1.x, kp1.y);
       ctx.lineTo(kp2.x, kp2.y);
       ctx.stroke();
+    }
+  });
+  
+  // Dibujar puntos
+  keypoints.forEach(kp => {
+    if (kp.score > 0.3) {
+      const isBad = badParts.includes(kp.name);
+      ctx.fillStyle = isBad ? redColor : greenColor;
+      const radius = isBad ? 10 : 8; // Punto rojo más grande
+      ctx.beginPath();
+      ctx.arc(kp.x, kp.y, radius, 0, 2 * Math.PI);
+      ctx.fill();
     }
   });
 }
@@ -119,7 +130,7 @@ async function detectPose() {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
           const keypoints = poses[0].keypoints;
-          let isBadPosture = false;
+          let badParts = []; // Array de partes del cuerpo con mala postura
           let warningMessage = '';
           
           // ===== CURL DE BÍCEPS =====
@@ -131,19 +142,20 @@ async function detectPose() {
             if (rs && re && rw && rs.score > 0.3 && re.score > 0.3 && rw.score > 0.3) {
               const angle = calculateAngle(rs, re, rw);
               
-              // Detectar si el codo se mueve hacia adelante (error común según ciencia)
+              // Detectar si el codo se mueve hacia adelante
               const shoulderX = rs.x;
               const elbowX = re.x;
               const elbowForward = Math.abs(elbowX - shoulderX) > 50;
               
               if (elbowForward) {
-                isBadPosture = true;
+                // Solo el brazo derecho en rojo
+                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
                 warningMessage = '❌ No muevas el codo hacia adelante';
               }
               
               if (angle > 160) {
                 stage = 'down';
-                if (!isBadPosture) {
+                if (badParts.length === 0) {
                   feedback.textContent = 'Brazo estirado. ¡Sube!';
                   feedback.style.color = '#ffd43b';
                 }
@@ -165,11 +177,11 @@ async function detectPose() {
                     feedback.style.color = '#00ff88';
                   }
                 } else {
-                  if (!isBadPosture) feedback.textContent = 'Bien, bajá controlado.';
+                  if (badParts.length === 0) feedback.textContent = 'Bien, bajá controlado.';
                   feedback.style.color = '#00ff88';
                 }
               } else {
-                if (!isBadPosture) {
+                if (badParts.length === 0) {
                   feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
                   feedback.style.color = '#ffd43b';
                 }
@@ -187,23 +199,23 @@ async function detectPose() {
             if (hip && knee && ankle && hip.score > 0.3 && knee.score > 0.3 && ankle.score > 0.3) {
               const kneeAngle = calculateAngle(hip, knee, ankle);
               
-              // Según ciencia: 90° es óptimo. Más de 100° = profundidad insuficiente
               if (kneeAngle > 100) {
-                isBadPosture = true;
+                // Solo la pierna izquierda en rojo
+                badParts = ['left_hip', 'left_knee', 'left_ankle'];
                 warningMessage = '❌ Bajá más (llegá a 90°)';
               }
               
-              // Detectar espalda encorvada (hombro mucho más adelante que cadera)
               if (shoulder && shoulder.score > 0.3) {
                 const shoulderForward = shoulder.x - hip.x;
                 if (shoulderForward > 60) {
-                  isBadPosture = true;
+                  // Espalda en rojo
+                  badParts = ['left_shoulder', 'left_hip'];
                   warningMessage = '❌ Mantené la espalda recta';
                 }
               }
               
               feedback.textContent = `Rodilla: ${Math.round(kneeAngle)}°`;
-              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
+              feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
             }
           }
           
@@ -216,18 +228,17 @@ async function detectPose() {
             if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
               const elbowAngle = calculateAngle(shoulder, elbow, wrist);
               
-              // Según ciencia: 45° es el ángulo óptimo. Más de 70° = peligroso para hombros
               const shoulderX = shoulder.x;
               const elbowX = elbow.x;
               const elbowFlared = Math.abs(elbowX - shoulderX) > 80;
               
               if (elbowFlared) {
-                isBadPosture = true;
+                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
                 warningMessage = '❌ Codos muy abiertos (usá 45°)';
               }
               
               feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
+              feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
             }
           }
           
@@ -240,14 +251,13 @@ async function detectPose() {
             if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
               const elbowAngle = calculateAngle(shoulder, elbow, wrist);
               
-              // Según ciencia: 45-75° es seguro. Más de 80° = riesgo de lesión
               if (elbowAngle > 80 && elbowAngle < 160) {
-                isBadPosture = true;
+                badParts = ['right_shoulder', 'right_elbow', 'right_wrist'];
                 warningMessage = '❌ Codos muy abiertos (45-75°)';
               }
               
               feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
-              feedback.style.color = isBadPosture ? '#ff4444' : '#ffd43b';
+              feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
             }
           }
           
@@ -259,7 +269,6 @@ async function detectPose() {
             
             if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
               const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              
               feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
               feedback.style.color = '#ffd43b';
             }
@@ -273,19 +282,18 @@ async function detectPose() {
             
             if (shoulder && elbow && wrist && shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
               const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-              
               feedback.textContent = `Codo: ${Math.round(elbowAngle)}°`;
               feedback.style.color = '#ffd43b';
             }
           }
           
-          // Mostrar mensaje de advertencia si hay mala postura
-          if (isBadPosture && warningMessage) {
+          // Mostrar mensaje de advertencia
+          if (badParts.length > 0 && warningMessage) {
             feedback.textContent = warningMessage;
             feedback.style.color = '#ff4444';
           }
           
-          drawSkeleton(keypoints, isBadPosture);
+          drawSkeleton(keypoints, badParts);
         }
       }
     } catch (error) { console.error('Error detección:', error); }
