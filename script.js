@@ -8,13 +8,13 @@ let targetReps = 10;
 let currentSet = 1;
 let currentRep = 0;
 let stage = 'down';
-let voiceEnabled = true;
-let audioContextInitialized = false;
 
 const setupScreen = document.getElementById('setup-screen');
 const workoutScreen = document.getElementById('workout-screen');
 const overlayCounter = document.getElementById('overlay-counter');
 const controlsBottom = document.getElementById('controls-bottom');
+const countdownOverlay = document.getElementById('countdown-overlay');
+const countdownNumber = document.getElementById('countdown-number');
 
 const exercisesDB = [
   { id: 'curl', name: 'Curl de Bíceps', icon: '💪', category: 'upper' },
@@ -25,89 +25,6 @@ const exercisesDB = [
   { id: 'lat_pulldown', name: 'Jalón al Pecho', icon: '⬇️', category: 'upper' },
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
-
-const numbersInSpanish = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte'];
-
-// ===== SISTEMA DE VOZ Y VIBRACIÓN (COMPATIBLE CON iOS) =====
-
-function initAudio() {
-  if (audioContextInitialized) return;
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (AudioContext) {
-      const audioCtx = new AudioContext();
-      audioCtx.resume();
-      audioContextInitialized = true;
-    }
-  } catch (e) {
-    console.log('AudioContext no soportado');
-  }
-}
-
-function speak(text) {
-  if (!voiceEnabled) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'es-ES';
-  utterance.rate = 1.1;
-  utterance.volume = 1;
-  if (window.speechSynthesis) {
-    window.speechSynthesis.speak(utterance);
-  }
-}
-
-function vibrate(pattern) {
-  if (navigator.vibrate) {
-    navigator.vibrate(pattern);
-  } else {
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (AudioContext && audioContextInitialized) {
-        const audioCtx = new AudioContext();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.frequency.value = 800;
-        oscillator.type = 'sine';
-        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        oscillator.start(audioCtx.currentTime);
-        oscillator.stop(audioCtx.currentTime + 0.1);
-      }
-    } catch (e) {
-      console.log('Vibración/beep no disponible');
-    }
-  }
-}
-
-const VIBRATE_REP = [100];
-const VIBRATE_ERROR = [200, 100, 200];
-const VIBRATE_SET = [300];
-const VIBRATE_FINISH = [500, 200, 500, 200, 500];
-
-// ===== ESCALADO INTELIGENTE DE COORDENADAS =====
-function scaleKeypoints(keypoints) {
-  const videoWidth = video.videoWidth;
-  const videoHeight = video.videoHeight;
-  const maxX = Math.max(...keypoints.map(kp => kp.x));
-  const maxY = Math.max(...keypoints.map(kp => kp.y));
-  return keypoints.map(kp => {
-    let x, y;
-    if (maxX <= 1.5 && maxY <= 1.5) {
-      x = kp.x * videoWidth;
-      y = kp.y * videoHeight;
-    } else if (maxX <= 300 && maxY <= 300) {
-      const inputSize = 256;
-      x = (kp.x / inputSize) * videoWidth;
-      y = (kp.y / inputSize) * videoHeight;
-    } else {
-      x = kp.x;
-      y = kp.y;
-    }
-    return { name: kp.name, x: x, y: y, score: kp.score };
-  });
-}
 
 async function setupCamera() {
   video = document.getElementById('video');
@@ -138,6 +55,49 @@ async function loadModel() {
       { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
     );
   }
+}
+
+// ===== CONTEO REGRESIVO VISUAL =====
+function runCountdown() {
+  return new Promise((resolve) => {
+    let count = 3;
+    countdownOverlay.style.display = 'flex';
+    
+    function showNumber() {
+      if (count > 0) {
+        // Mostrar número
+        countdownNumber.textContent = count;
+        countdownNumber.className = 'countdown-number show';
+        
+        // Desvanecer después de 700ms
+        setTimeout(() => {
+          countdownNumber.classList.add('fade');
+        }, 700);
+        
+        // Siguiente número después de 1 segundo
+        setTimeout(() => {
+          count--;
+          showNumber();
+        }, 1000);
+      } else {
+        // Mostrar "¡YA!"
+        countdownNumber.textContent = '¡YA!';
+        countdownNumber.className = 'countdown-number show go';
+        
+        setTimeout(() => {
+          countdownNumber.classList.add('fade');
+        }, 600);
+        
+        // Ocultar overlay y comenzar
+        setTimeout(() => {
+          countdownOverlay.style.display = 'none';
+          resolve();
+        }, 1000);
+      }
+    }
+    
+    showNumber();
+  });
 }
 
 function calculateAngle(a, b, c) {
@@ -220,8 +180,7 @@ async function detectPose() {
       if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
-          const rawKeypoints = poses[0].keypoints;
-          const keypoints = scaleKeypoints(rawKeypoints);
+          const keypoints = poses[0].keypoints;
           let badParts = [];
           let warningMessage = '';
           if (selectedExercise === 'curl') {
@@ -233,11 +192,8 @@ async function detectPose() {
             }
             if (leftCheck.bad) {
               badParts = badParts.concat(leftCheck.parts);
-              if (rightCheck.bad) {
-                warningMessage = '❌ Ambos codos adelantados';
-              } else {
-                warningMessage = '❌ Codo izquierdo adelantado';
-              }
+              if (rightCheck.bad) warningMessage = '❌ Ambos codos adelantados';
+              else warningMessage = '❌ Codo izquierdo adelantado';
             }
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
             if (avgAngle > 160) {
@@ -251,21 +207,16 @@ async function detectPose() {
                 currentRep++;
                 stage = 'up';
                 updateInfoText();
-                vibrate(VIBRATE_REP);
                 if (currentRep === targetReps) {
                   feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
                   feedback.style.color = '#00ff88';
-                  speak('¡Meta cumplida!');
                   showNextSetButton();
                 } else if (currentRep > targetReps) {
                   feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
                   feedback.style.color = '#00ff88';
-                  speak('Extra');
                 } else {
                   feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
                   feedback.style.color = '#00ff88';
-                  const repText = numbersInSpanish[currentRep] || currentRep.toString();
-                  speak(repText);
                 }
               } else {
                 if (badParts.length === 0) feedback.textContent = 'Bien, bajá controlado.';
@@ -332,8 +283,6 @@ async function detectPose() {
           if (badParts.length > 0 && warningMessage) {
             feedback.textContent = warningMessage;
             feedback.style.color = '#ff4444';
-            vibrate(VIBRATE_ERROR);
-            speak('Postura');
           }
           drawSkeleton(keypoints, badParts);
         }
@@ -381,9 +330,6 @@ function nextSet() {
   const feedback = document.getElementById('feedback');
   feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
   feedback.style.color = '#ffd43b';
-  vibrate(VIBRATE_SET);
-  const setText = numbersInSpanish[currentSet] || currentSet.toString();
-  speak(`Serie ${setText}`);
 }
 
 function finishWorkout() {
@@ -391,8 +337,6 @@ function finishWorkout() {
   feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
   feedback.style.color = '#00ff88';
   hideControlsBottom();
-  vibrate(VIBRATE_FINISH);
-  speak('¡Entrenamiento completado!');
 }
 
 document.getElementById('btn-rotate-overlay').addEventListener('click', async () => {
@@ -429,9 +373,9 @@ document.getElementById('btn-back').addEventListener('click', () => {
     video.srcObject = null;
   }
   hideControlsBottom();
+  countdownOverlay.style.display = 'none';
   workoutScreen.style.display = 'none';
   setupScreen.style.display = 'block';
-  window.speechSynthesis.cancel();
 });
 
 const searchInput = document.getElementById('exercise-search');
@@ -497,7 +441,6 @@ document.querySelectorAll('.btn-minus[data-target="reps"], .btn-plus[data-target
 });
 
 document.getElementById('btn-start').addEventListener('click', async () => {
-  initAudio();
   selectedExercise = exerciseSelect.value;
   targetSets = setsValue;
   targetReps = repsValue;
@@ -508,13 +451,19 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   setupScreen.style.display = 'none';
   workoutScreen.style.display = 'flex';
   hideControlsBottom();
+  
   const feedback = document.getElementById('feedback');
   try {
-    feedback.textContent = '📹 Preparando...';
+    feedback.textContent = '📹 Preparando cámara...';
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
-    feedback.textContent = '✅ Listo';
+    feedback.textContent = 'Ubicate frente a la cámara';
+    
+    // EJECUTAR CONTEO REGRESIVO ANTES DE EMPEZAR
+    await runCountdown();
+    
+    feedback.textContent = '✅ ¡A entrenar!';
     detectPose();
   } catch (error) {
     feedback.textContent = '❌ Error';
