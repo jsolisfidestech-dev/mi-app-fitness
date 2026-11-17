@@ -31,8 +31,8 @@ async function setupCamera() {
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } 
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }
     });
     video.srcObject = stream;
     return new Promise((resolve) => {
@@ -57,45 +57,33 @@ async function loadModel() {
   }
 }
 
-// ===== CONTEO REGRESIVO VISUAL =====
 function runCountdown() {
   return new Promise((resolve) => {
     let count = 3;
     countdownOverlay.style.display = 'flex';
-    
     function showNumber() {
       if (count > 0) {
-        // Mostrar número
         countdownNumber.textContent = count;
         countdownNumber.className = 'countdown-number show';
-        
-        // Desvanecer después de 700ms
         setTimeout(() => {
           countdownNumber.classList.add('fade');
         }, 700);
-        
-        // Siguiente número después de 1 segundo
         setTimeout(() => {
           count--;
           showNumber();
         }, 1000);
       } else {
-        // Mostrar "¡YA!"
         countdownNumber.textContent = '¡YA!';
         countdownNumber.className = 'countdown-number show go';
-        
         setTimeout(() => {
           countdownNumber.classList.add('fade');
         }, 600);
-        
-        // Ocultar overlay y comenzar
         setTimeout(() => {
           countdownOverlay.style.display = 'none';
           resolve();
         }, 1000);
       }
     }
-    
     showNumber();
   });
 }
@@ -112,7 +100,28 @@ function distance(a, b) {
   return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
 }
 
-function drawSkeleton(keypoints, badParts = []) {
+function scaleKeypoints(keypoints) {
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  const maxX = Math.max(...keypoints.map(kp => kp.x));
+  const maxY = Math.max(...keypoints.map(kp => kp.y));
+  return keypoints.map(kp => {
+    let x, y;
+    if (maxX <= 1.5 && maxY <= 1.5) {
+      x = kp.x * videoWidth;
+      y = kp.y * videoHeight;
+    } else if (maxX <= 300 && maxY <= 300) {
+      x = (kp.x / 256) * videoWidth;
+      y = (kp.y / 256) * videoHeight;
+    } else {
+      x = kp.x;
+      y = kp.y;
+    }
+    return { name: kp.name, x: x, y: y, score: kp.score };
+  });
+}
+
+function drawSkeleton(keypoints, badParts) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const greenColor = '#00ff88';
   const redColor = '#ff4444';
@@ -124,7 +133,9 @@ function drawSkeleton(keypoints, badParts = []) {
     ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
     ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
   ];
-  allConnections.forEach(([start, end]) => {
+  allConnections.forEach(function(pair) {
+    const start = pair[0];
+    const end = pair[1];
     const kp1 = keypoints.find(kp => kp.name === start);
     const kp2 = keypoints.find(kp => kp.name === end);
     if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
@@ -137,7 +148,7 @@ function drawSkeleton(keypoints, badParts = []) {
       ctx.stroke();
     }
   });
-  keypoints.forEach(kp => {
+  keypoints.forEach(function(kp) {
     if (kp.score > 0.3) {
       const isBad = badParts.includes(kp.name);
       ctx.fillStyle = isBad ? redColor : greenColor;
@@ -150,10 +161,10 @@ function drawSkeleton(keypoints, badParts = []) {
 }
 
 function checkArm(keypoints, side) {
-  const shoulder = keypoints.find(k => k.name === `${side}_shoulder`);
-  const elbow = keypoints.find(k => k.name === `${side}_elbow`);
-  const wrist = keypoints.find(k => k.name === `${side}_wrist`);
-  const hip = keypoints.find(k => k.name === `${side}_hip`);
+  const shoulder = keypoints.find(k => k.name === side + '_shoulder');
+  const elbow = keypoints.find(k => k.name === side + '_elbow');
+  const wrist = keypoints.find(k => k.name === side + '_wrist');
+  const hip = keypoints.find(k => k.name === side + '_hip');
   if (!shoulder || !elbow || !wrist || !hip) return { bad: false, parts: [], angle: 0 };
   if (shoulder.score < 0.3 || elbow.score < 0.3 || wrist.score < 0.3) return { bad: false, parts: [], angle: 0 };
   const angle = calculateAngle(shoulder, elbow, wrist);
@@ -165,7 +176,11 @@ function checkArm(keypoints, side) {
   const threshold = shoulderWidth * 0.25;
   const elbowForward = Math.abs(elbow.x - shoulder.x) > threshold;
   if (elbowForward) {
-    return { bad: true, parts: [`${side}_shoulder`, `${side}_elbow`, `${side}_wrist`], angle: angle };
+    return {
+      bad: true,
+      parts: [side + '_shoulder', side + '_elbow', side + '_wrist'],
+      angle: angle
+    };
   }
   return { bad: false, parts: [], angle: angle };
 }
@@ -175,12 +190,16 @@ async function detectPose() {
   isRunning = true;
   const feedback = document.getElementById('feedback');
   while (isRunning) {
-    if (isSwitching) { await new Promise(r => setTimeout(r, 100)); continue; }
+    if (isSwitching) {
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
     try {
       if (detector && video.srcObject && video.readyState === 4) {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
-          const keypoints = poses[0].keypoints;
+          const rawKeypoints = poses[0].keypoints;
+          const keypoints = scaleKeypoints(rawKeypoints);
           let badParts = [];
           let warningMessage = '';
           if (selectedExercise === 'curl') {
@@ -192,8 +211,11 @@ async function detectPose() {
             }
             if (leftCheck.bad) {
               badParts = badParts.concat(leftCheck.parts);
-              if (rightCheck.bad) warningMessage = '❌ Ambos codos adelantados';
-              else warningMessage = '❌ Codo izquierdo adelantado';
+              if (rightCheck.bad) {
+                warningMessage = '❌ Ambos codos adelantados';
+              } else {
+                warningMessage = '❌ Codo izquierdo adelantado';
+              }
             }
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
             if (avgAngle > 160) {
@@ -208,14 +230,14 @@ async function detectPose() {
                 stage = 'up';
                 updateInfoText();
                 if (currentRep === targetReps) {
-                  feedback.textContent = `🎉 ¡Meta cumplida! Llevas ${currentRep}/${targetReps}`;
+                  feedback.textContent = '🎉 ¡Meta cumplida! Llevas ' + currentRep + '/' + targetReps;
                   feedback.style.color = '#00ff88';
                   showNextSetButton();
                 } else if (currentRep > targetReps) {
-                  feedback.textContent = `💪 ¡Extra! Llevas ${currentRep} reps`;
+                  feedback.textContent = '💪 ¡Extra! Llevas ' + currentRep + ' reps';
                   feedback.style.color = '#00ff88';
                 } else {
-                  feedback.textContent = `✅ Rep ${currentRep}/${targetReps}. ¡Seguí!`;
+                  feedback.textContent = '✅ Rep ' + currentRep + '/' + targetReps + '. ¡Seguí!';
                   feedback.style.color = '#00ff88';
                 }
               } else {
@@ -224,7 +246,7 @@ async function detectPose() {
               }
             } else {
               if (badParts.length === 0) {
-                feedback.textContent = `Subiendo... ${Math.round(avgAngle)}°`;
+                feedback.textContent = 'Subiendo... ' + Math.round(avgAngle) + '°';
                 feedback.style.color = '#ffd43b';
               }
             }
@@ -246,7 +268,7 @@ async function detectPose() {
                   warningMessage = '❌ Mantené la espalda recta';
                 }
               }
-              feedback.textContent = `Rodilla: ${Math.round(kneeAngle)}°`;
+              feedback.textContent = 'Rodilla: ' + Math.round(kneeAngle) + '°';
               feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
             }
           } else if (selectedExercise === 'pushup') {
@@ -256,7 +278,7 @@ async function detectPose() {
             if (leftCheck.bad) badParts = badParts.concat(leftCheck.parts);
             if (badParts.length > 0) warningMessage = '❌ Codos muy abiertos (usá 45°)';
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
-            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.textContent = 'Codo: ' + Math.round(avgAngle) + '°';
             feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           } else if (selectedExercise === 'bench_press' || selectedExercise === 'incline_press') {
             const rightCheck = checkArm(keypoints, 'right');
@@ -265,19 +287,19 @@ async function detectPose() {
             if (leftCheck.bad) badParts = badParts.concat(leftCheck.parts);
             if (badParts.length > 0) warningMessage = '❌ Codos muy abiertos (45-75°)';
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
-            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.textContent = 'Codo: ' + Math.round(avgAngle) + '°';
             feedback.style.color = badParts.length > 0 ? '#ff4444' : '#ffd43b';
           } else if (selectedExercise === 'lat_pulldown') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
-            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.textContent = 'Codo: ' + Math.round(avgAngle) + '°';
             feedback.style.color = '#ffd43b';
           } else if (selectedExercise === 'seated_row') {
             const rightCheck = checkArm(keypoints, 'right');
             const leftCheck = checkArm(keypoints, 'left');
             const avgAngle = (rightCheck.angle + leftCheck.angle) / 2;
-            feedback.textContent = `Codo: ${Math.round(avgAngle)}°`;
+            feedback.textContent = 'Codo: ' + Math.round(avgAngle) + '°';
             feedback.style.color = '#ffd43b';
           }
           if (badParts.length > 0 && warningMessage) {
@@ -287,14 +309,16 @@ async function detectPose() {
           drawSkeleton(keypoints, badParts);
         }
       }
-    } catch (error) { console.error('Error detección:', error); }
+    } catch (error) {
+      console.error('Error detección:', error);
+    }
     await new Promise(r => setTimeout(r, 50));
   }
 }
 
 function updateInfoText() {
   if (overlayCounter) {
-    overlayCounter.textContent = `Serie ${currentSet}/${targetSets} | Rep ${currentRep}`;
+    overlayCounter.textContent = 'Serie ' + currentSet + '/' + targetSets + ' | Rep ' + currentRep;
   }
 }
 
@@ -305,7 +329,7 @@ function showNextSetButton() {
   if (currentSet < targetSets) {
     btn = document.createElement('button');
     btn.id = 'btn-next-set';
-    btn.textContent = `➡️ Pasar a Serie ${currentSet + 1}`;
+    btn.textContent = '➡️ Pasar a Serie ' + (currentSet + 1);
     btn.onclick = nextSet;
   } else {
     btn = document.createElement('button');
@@ -328,13 +352,13 @@ function nextSet() {
   updateInfoText();
   hideControlsBottom();
   const feedback = document.getElementById('feedback');
-  feedback.textContent = `¡Vamos con la Serie ${currentSet}!`;
+  feedback.textContent = '¡Vamos con la Serie ' + currentSet + '!';
   feedback.style.color = '#ffd43b';
 }
 
 function finishWorkout() {
   const feedback = document.getElementById('feedback');
-  feedback.textContent = `🏆 ¡Completado! Total: ${currentRep} reps en ${currentSet} series.`;
+  feedback.textContent = '🏆 ¡Completado! Total: ' + currentRep + ' reps en ' + currentSet + ' series.';
   feedback.style.color = '#00ff88';
   hideControlsBottom();
 }
@@ -349,8 +373,8 @@ document.getElementById('btn-rotate-overlay').addEventListener('click', async ()
       video.srcObject.getTracks().forEach(t => t.stop());
     }
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } 
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }
     });
     video.srcObject = stream;
     await new Promise((resolve) => {
@@ -363,7 +387,9 @@ document.getElementById('btn-rotate-overlay').addEventListener('click', async ()
     feedback.textContent = '✅ Cámara cambiada';
   } catch (error) {
     feedback.textContent = '❌ Error al cambiar';
-  } finally { isSwitching = false; }
+  } finally {
+    isSwitching = false;
+  }
 });
 
 document.getElementById('btn-back').addEventListener('click', () => {
@@ -396,14 +422,16 @@ searchInput.addEventListener('input', (e) => {
     searchResults.classList.remove('active');
     return;
   }
-  searchResults.innerHTML = filtered.map(ex => `<div class="search-result-item" data-id="${ex.id}"><div class="thumb">${ex.icon}</div><div class="name">${ex.name}</div></div>`).join('');
+  searchResults.innerHTML = filtered.map(ex =>
+    '<div class="search-result-item" data-id="' + ex.id + '"><div class="thumb">' + ex.icon + '</div><div class="name">' + ex.name + '</div></div>'
+  ).join('');
   searchResults.classList.add('active');
   searchResults.querySelectorAll('.search-result-item').forEach(item => {
     item.addEventListener('click', () => {
       const id = item.dataset.id;
       const ex = exercisesDB.find(e => e.id === id);
       exerciseSelect.value = id;
-      selectedExerciseDiv.textContent = `${ex.name} ${ex.icon}`;
+      selectedExerciseDiv.textContent = ex.name + ' ' + ex.icon;
       selectedExerciseDiv.classList.add('active');
       searchInput.value = '';
       searchResults.classList.remove('active');
@@ -451,7 +479,6 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   setupScreen.style.display = 'none';
   workoutScreen.style.display = 'flex';
   hideControlsBottom();
-  
   const feedback = document.getElementById('feedback');
   try {
     feedback.textContent = '📹 Preparando cámara...';
@@ -459,10 +486,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
     feedback.textContent = 'Ubicate frente a la cámara';
-    
-    // EJECUTAR CONTEO REGRESIVO ANTES DE EMPEZAR
     await runCountdown();
-    
     feedback.textContent = '✅ ¡A entrenar!';
     detectPose();
   } catch (error) {
@@ -471,13 +495,34 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 });
 
 const exerciseInstructions = {
-  curl: { title: "🏋️ Curl de Bíceps", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que no adelantes los codos</div>` },
-  squat: { title: "🦵 Sentadilla", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, cuerpo completo visible (de cabeza a pies)</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo de rodilla (debe bajar a 90°) y espalda recta</div>` },
-  pushup: { title: "💪 Flexiones", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> En el suelo, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45° óptimo) y que bajes el pecho cerca del suelo</div>` },
-  bench_press: { title: "🏋️ Press de Banca", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en la banca, cuerpo completo visible de lado</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45-75° seguro) y que la barra baje al pecho</div>` },
-  incline_press: { title: "📐 Press Inclinado", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca inclinada, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en banca a 30°, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que bajes la barra al pecho superior</div>` },
-  lat_pulldown: { title: "⬇️ Jalón al Pecho", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la máquina, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Sentado, cuerpo completo visible de lado</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que la barra llegue al pecho</div>` },
-  seated_row: { title: "🚣 Remo en V", content: `<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la máquina, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Sentado, cuerpo completo visible de lado</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que tires el agarre hacia el abdomen</div>` }
+  curl: {
+    title: '🏋️ Curl de Bíceps',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De frente al celular, a 1-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, brazos a los costados, torso visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo y que no adelantes los codos</div>'
+  },
+  squat: {
+    title: '🦵 Sentadilla',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> De pie, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo de rodilla (debe bajar a 90°) y espalda recta</div>'
+  },
+  pushup: {
+    title: '💪 Flexiones',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL al celular, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> En el suelo, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45° óptimo)</div>'
+  },
+  bench_press: {
+    title: '🏋️ Press de Banca',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca, a 1.5-2 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en la banca</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo (45-75° seguro)</div>'
+  },
+  incline_press: {
+    title: '📐 Press Inclinado',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la banca inclinada</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Acostado en banca a 30°</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo</div>'
+  },
+  lat_pulldown: {
+    title: '⬇️ Jalón al Pecho',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Vertical (parado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la máquina, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Sentado, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo</div>'
+  },
+  seated_row: {
+    title: '🚣 Remo en V',
+    content: '<div class="instruction-item"><span class="emoji-big">📱</span><strong>Orientación:</strong> Horizontal (acostado)</div><div class="instruction-item"><span class="emoji-big">📍</span><strong>Posición:</strong> De PERFIL a la máquina, a 2-3 metros</div><div class="instruction-item"><span class="emoji-big">👤</span><strong>Tu cuerpo:</strong> Sentado, cuerpo completo visible</div><div class="instruction-item"><span class="emoji-big">✅</span><strong>Qué detecta:</strong> Ángulo del codo</div>'
+  }
 };
 
 document.getElementById('btn-help').addEventListener('click', () => {
