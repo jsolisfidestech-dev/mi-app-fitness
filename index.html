@@ -3,47 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mi Personal Trainer IA</title>
-  <link rel="stylesheet" href="styles.css?v=10">
+  <title>Personal Trainer IA Pro</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
+  <!-- PANTALLA DE CONFIGURACIÓN -->
   <div id="setup-screen">
     <h1 class="main-title">Personal Trainer <span class="title-ia">IA</span></h1>
-    <p class="subtitle">Configurá tu entrenamiento</p>
+    <p class="subtitle">Configurá tu entrenamiento inteligente</p>
 
     <div class="main-card">
+      <!-- Tabs de categorías funcionales -->
       <div class="category-tabs">
-        <button class="tab active" data-category="full"><span class="tab-icon">🧍</span><span>Cuerpo Completo</span></button>
-        <button class="tab" data-category="upper"><span class="tab-icon">💪</span><span>Superior</span></button>
-        <button class="tab" data-category="lower"><span class="tab-icon">🦵</span><span>Inferior</span></button>
+        <button class="tab active" data-category="all">
+          <span class="tab-icon">🧍</span>
+          <span>Todos</span>
+        </button>
+        <button class="tab" data-category="upper">
+          <span class="tab-icon">💪</span>
+          <span>Superior</span>
+        </button>
+        <button class="tab" data-category="lower">
+          <span class="tab-icon">🦵</span>
+          <span>Inferior</span>
+        </button>
       </div>
 
+      <!-- Buscador y Selector -->
       <div class="search-container">
         <label class="field-label">Ejercicio:</label>
         <div class="search-box">
-          <input type="text" id="exercise-search" placeholder="Buscar ejercicio..." autocomplete="off">
+          <input type="text" id="exercise-search" placeholder="Buscar o filtrar ejercicio..." autocomplete="off">
           <span class="search-icon">🔍</span>
         </div>
         <div id="search-results" class="search-results"></div>
-        <select id="exercise-select" class="hidden-select">
-          <option value="curl">Curl de Bíceps</option>
-          <option value="squat">Sentadilla</option>
-          <option value="pushup">Flexiones</option>
-          <option value="bench_press">Press de Banca</option>
-          <option value="incline_press">Press Inclinado</option>
-          <option value="lat_pulldown">Jalón al Pecho</option>
-          <option value="seated_row">Remo en V</option>
-        </select>
-        <div id="selected-exercise" class="selected-exercise">Curl de Bíceps 💪</div>
+        <div id="selected-exercise" class="selected-exercise active">Curl de Bíceps 💪</div>
       </div>
 
+      <!-- Botón de guía -->
       <button id="btn-help" class="btn-guide">
         <span class="guide-icon">📱</span>
         <span>Guía de ubicación del celular</span>
         <span class="info-badge">ℹ️</span>
       </button>
 
+      <!-- Opciones extra: Audio y Vibración -->
+      <div class="toggles-row">
+        <label class="toggle-item">
+          <input type="checkbox" id="toggle-sound" checked>
+          <span>🔊 Sonidos</span>
+        </label>
+        <label class="toggle-item">
+          <input type="checkbox" id="toggle-vibrate" checked>
+          <span>📳 Vibración</span>
+        </label>
+      </div>
+
+      <!-- Contadores -->
       <div class="counters-row">
         <div class="counter-group">
           <label class="field-label">Series: <span class="field-sub">set</span></label>
@@ -70,6 +87,7 @@
     </div>
   </div>
 
+  <!-- MODAL DE INSTRUCCIONES -->
   <div id="help-modal" class="modal">
     <div class="modal-content">
       <span class="close-modal">&times;</span>
@@ -79,11 +97,45 @@
     </div>
   </div>
 
+  <!-- MODAL DE RESUMEN FINAL -->
+  <div id="summary-modal" class="modal">
+    <div class="modal-content summary-card">
+      <h2>🏆 ¡Entrenamiento Completado!</h2>
+      <p class="summary-subtitle" id="summary-exercise-name">Curl de Bíceps</p>
+      
+      <div class="stats-grid">
+        <div class="stat-box">
+          <span class="stat-value" id="stat-reps">30</span>
+          <span class="stat-label">Reps Totales</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="stat-time">02:15</span>
+          <span class="stat-label">Duración</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="stat-accuracy">94%</span>
+          <span class="stat-label">Precisión Técnica</span>
+        </div>
+      </div>
+
+      <button id="btn-finish-home" class="btn-primary">Volver al Inicio</button>
+    </div>
+  </div>
+
+  <!-- PANTALLA DE ENTRENAMIENTO (INMERSIVA) -->
   <div id="workout-screen" style="display: none;">
-    <div class="video-wrapper">
+    <div class="video-wrapper" id="video-wrapper">
+      <!-- Borde de alerta roja inmersiva -->
+      <div id="posture-alert-border" class="posture-alert-border"></div>
+
       <div class="video-container">
         <div class="overlay-feedback" id="feedback">Preparando...</div>
-        <div class="overlay-counter" id="overlay-counter">Serie 1/3 | Rep 0</div>
+        
+        <div class="overlay-counter">
+          <div id="overlay-set-text">Serie 1/3</div>
+          <div class="rep-big" id="overlay-rep-text">0 / 10</div>
+        </div>
+
         <button id="btn-rotate-overlay" class="overlay-btn" title="Cambiar cámara">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
@@ -91,23 +143,28 @@
             <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
           </svg>
         </button>
+
         <button id="btn-back" class="overlay-btn bottom-left" title="Salir">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
           </svg>
         </button>
+
         <video id="video" autoplay playsinline muted></video>
         <canvas id="canvas"></canvas>
+
+        <!-- Cuenta Regresiva -->
         <div id="countdown-overlay" class="countdown-overlay" style="display: none;">
           <div id="countdown-number" class="countdown-number">3</div>
         </div>
       </div>
     </div>
+
     <div class="controls" id="controls-bottom" style="display: none;"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="script.js?v=21"></script>
+  <script src="script.js"></script>
 </body>
 </html>
