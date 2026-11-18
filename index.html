@@ -1,20 +1,34 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0A0E1A" />
+  <meta name="description" content="Personal Trainer IA que corrige tu postura en tiempo real usando visión por computadora" />
   <title>Personal Trainer IA Pro</title>
-  <link rel="stylesheet" href="styles.css">
+
+  <!-- Fuentes profesionales -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- TensorFlow.js y PoseDetection -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.10.0/dist/tf-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.10.0/dist/tf-converter.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.10.0/dist/tf-backend-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.0/dist/pose-detection.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-  <!-- PANTALLA DE CONFIGURACIÓN -->
+  <!-- ============ PANTALLA DE CONFIGURACIÓN ============ -->
   <div id="setup-screen">
     <h1 class="main-title">Personal Trainer <span class="title-ia">IA</span></h1>
     <p class="subtitle">Configurá tu entrenamiento inteligente</p>
 
     <div class="main-card">
-      <!-- Tabs de categorías funcionales -->
+      <!-- Tabs de categorías -->
       <div class="category-tabs">
         <button class="tab active" data-category="all">
           <span class="tab-icon">🧍</span>
@@ -30,32 +44,36 @@
         </button>
       </div>
 
-      <!-- Buscador y Selector -->
+      <!-- Buscador -->
       <div class="search-container">
-        <label class="field-label">Ejercicio:</label>
+        <label class="field-label">
+          Ejercicio:
+          <span class="field-sub">Buscá o seleccioná</span>
+        </label>
         <div class="search-box">
-          <input type="text" id="exercise-search" placeholder="Buscar o filtrar ejercicio..." autocomplete="off">
-          <span class="search-icon">🔍</span>
+          <input type="text" id="exercise-search" placeholder="🔍 Curl de Bíceps" autocomplete="off" />
         </div>
         <div id="search-results" class="search-results"></div>
-        <div id="selected-exercise" class="selected-exercise active">Curl de Bíceps 💪</div>
+        <div id="selected-exercise" class="selected-exercise">
+          <span>Curl de Bíceps 💪</span>
+        </div>
       </div>
 
-      <!-- Botón de guía -->
+      <!-- Botón guía -->
       <button id="btn-help" class="btn-guide">
-        <span class="guide-icon">📱</span>
+        <span>📱</span>
         <span>Guía de ubicación del celular</span>
         <span class="info-badge">ℹ️</span>
       </button>
 
-      <!-- Opciones extra: Audio y Vibración -->
+      <!-- Toggles -->
       <div class="toggles-row">
         <label class="toggle-item">
-          <input type="checkbox" id="toggle-sound" checked>
+          <input type="checkbox" id="toggle-sound" checked />
           <span>🔊 Sonidos</span>
         </label>
         <label class="toggle-item">
-          <input type="checkbox" id="toggle-vibrate" checked>
+          <input type="checkbox" id="toggle-vibrate" checked />
           <span>📳 Vibración</span>
         </label>
       </div>
@@ -63,31 +81,32 @@
       <!-- Contadores -->
       <div class="counters-row">
         <div class="counter-group">
-          <label class="field-label">Series: <span class="field-sub">set</span></label>
+          <label class="field-label">Series</label>
           <div class="counter-controls">
             <button class="btn-minus" data-target="sets">−</button>
-            <div class="counter-value" id="sets-display">3</div>
+            <span class="counter-value" id="sets-display">3</span>
             <button class="btn-plus" data-target="sets">+</button>
           </div>
         </div>
         <div class="counter-group">
-          <label class="field-label">Repeticiones: <span class="field-sub">rep</span></label>
+          <label class="field-label">Repeticiones</label>
           <div class="counter-controls">
             <button class="btn-minus" data-target="reps">−</button>
-            <div class="counter-value" id="reps-display">10</div>
+            <span class="counter-value" id="reps-display">10</span>
             <button class="btn-plus" data-target="reps">+</button>
           </div>
         </div>
       </div>
 
+      <!-- Botón iniciar -->
       <button id="btn-start" class="btn-start">
-        <span class="play-icon">▶</span>
-        Iniciar Entrenamiento
+        <span class="btn-icon">▶</span>
+        <span>Iniciar Entrenamiento</span>
       </button>
     </div>
   </div>
 
-  <!-- MODAL DE INSTRUCCIONES -->
+  <!-- ============ MODAL DE AYUDA ============ -->
   <div id="help-modal" class="modal">
     <div class="modal-content">
       <span class="close-modal">&times;</span>
@@ -97,24 +116,97 @@
     </div>
   </div>
 
-  <!-- MODAL DE RESUMEN FINAL -->
+  <!-- ============ PANTALLA DE ENTRENAMIENTO ============ -->
+  <div id="workout-screen" style="display:none;">
+    <div class="video-wrapper">
+      <!-- Alerta visual periférica -->
+      <div id="posture-alert-border" class="posture-alert-border"></div>
+
+      <div class="video-container">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <!-- HUD: Contador de series/reps -->
+      <div class="overlay-counter">
+        <div id="overlay-set-text">Serie 1/3</div>
+        <div class="rep-big"><span id="overlay-rep-text">0 / 10</span></div>
+      </div>
+
+      <!-- HUD: Feedback -->
+      <div id="feedback" class="overlay-feedback">Preparando...</div>
+
+      <!-- HUD: Botón rotar cámara -->
+      <button id="btn-rotate-overlay" class="overlay-btn" title="Cambiar cámara">🔄</button>
+
+      <!-- HUD: Botón volver -->
+      <button id="btn-back" class="overlay-btn bottom-left" title="Volver">✖</button>
+
+      <!-- 🆕 Panel de métricas avanzadas en vivo -->
+      <div class="metrics-panel">
+        <div class="metric-item">
+          <span class="metric-label">Tempo</span>
+          <span class="metric-value" id="metric-tempo">—</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">TUT</span>
+          <span class="metric-value" id="metric-tut">0.0s</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Fatiga</span>
+          <span class="metric-value" id="metric-fatigue">0%</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Simetría</span>
+          <span class="metric-value" id="metric-symmetry">—</span>
+        </div>
+      </div>
+
+      <!-- Cuenta regresiva -->
+      <div id="countdown-overlay" class="countdown-overlay" style="display:none;">
+        <div id="countdown-number" class="countdown-number">3</div>
+      </div>
+
+      <!-- Controles inferiores (botón pasar serie) -->
+      <div id="controls-bottom" class="controls"></div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL DE RESUMEN ============ -->
   <div id="summary-modal" class="modal">
-    <div class="modal-content summary-card">
+    <div class="modal-content">
       <h2>🏆 ¡Entrenamiento Completado!</h2>
       <p class="summary-subtitle" id="summary-exercise-name">Curl de Bíceps</p>
-      
+
       <div class="stats-grid">
         <div class="stat-box">
-          <span class="stat-value" id="stat-reps">30</span>
+          <span class="stat-value" id="stat-reps">0</span>
           <span class="stat-label">Reps Totales</span>
         </div>
         <div class="stat-box">
-          <span class="stat-value" id="stat-time">02:15</span>
+          <span class="stat-value" id="stat-time">00:00</span>
           <span class="stat-label">Duración</span>
         </div>
         <div class="stat-box">
-          <span class="stat-value" id="stat-accuracy">94%</span>
+          <span class="stat-value" id="stat-accuracy">0%</span>
           <span class="stat-label">Precisión Técnica</span>
+        </div>
+        <!-- 🆕 Nuevas métricas profesionales -->
+        <div class="stat-box stat-box-accent">
+          <span class="stat-value" id="stat-rom">0°</span>
+          <span class="stat-label">ROM Promedio</span>
+        </div>
+        <div class="stat-box stat-box-accent">
+          <span class="stat-value" id="stat-tempo">—</span>
+          <span class="stat-label">Tempo (↓/↑)</span>
+        </div>
+        <div class="stat-box stat-box-accent">
+          <span class="stat-value" id="stat-tut">0s</span>
+          <span class="stat-label">TUT Total</span>
+        </div>
+        <div class="stat-box stat-box-accent">
+          <span class="stat-value" id="stat-symmetry">0%</span>
+          <span class="stat-label">Simetría L/R</span>
         </div>
       </div>
 
@@ -122,49 +214,6 @@
     </div>
   </div>
 
-  <!-- PANTALLA DE ENTRENAMIENTO (INMERSIVA) -->
-  <div id="workout-screen" style="display: none;">
-    <div class="video-wrapper" id="video-wrapper">
-      <!-- Borde de alerta roja inmersiva -->
-      <div id="posture-alert-border" class="posture-alert-border"></div>
-
-      <div class="video-container">
-        <div class="overlay-feedback" id="feedback">Preparando...</div>
-        
-        <div class="overlay-counter">
-          <div id="overlay-set-text">Serie 1/3</div>
-          <div class="rep-big" id="overlay-rep-text">0 / 10</div>
-        </div>
-
-        <button id="btn-rotate-overlay" class="overlay-btn" title="Cambiar cámara">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
-            <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
-          </svg>
-        </button>
-
-        <button id="btn-back" class="overlay-btn bottom-left" title="Salir">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
-          </svg>
-        </button>
-
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
-
-        <!-- Cuenta Regresiva -->
-        <div id="countdown-overlay" class="countdown-overlay" style="display: none;">
-          <div id="countdown-number" class="countdown-number">3</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="controls" id="controls-bottom" style="display: none;"></div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
   <script src="script.js"></script>
 </body>
 </html>
