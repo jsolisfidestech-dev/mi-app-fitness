@@ -3,7 +3,7 @@ let currentFacingMode = 'user';
 let isSwitching = false;
 let isRunning = false;
 
-// Estado del entrenamiento
+// ===== ESTADO MEJORADO DEL ENTRENAMIENTO =====
 const workoutState = {
   exercise: 'curl',
   targetSets: 3,
@@ -15,7 +15,48 @@ const workoutState = {
   totalFrames: 0,
   goodFrames: 0,
   lastWarningSoundTime: 0,
-  smoothedKeypoints: null
+  smoothedKeypoints: null,
+
+  // 🆕 Tempo Training
+  tempoTracker: {
+    phaseStartTime: 0,
+    currentPhase: 'idle', // 'eccentric', 'pause', 'concentric'
+    eccentricDuration: 0,
+    pauseDuration: 0,
+    concentricDuration: 0,
+    lastPhaseChange: 0
+  },
+
+  // 🆕 Time Under Tension
+  tut: 0,
+  lastFrameTime: 0,
+  isUnderTension: false,
+
+  // 🆕 Velocidad y fatiga
+  velocityTracker: {
+    positions: [],
+    currentVelocity: 0,
+    peakVelocity: 0,
+    velocityLossPercent: 0,
+    fatigueDetected: false
+  },
+
+  // 🆕 Simetría bilateral
+  symmetryTracker: {
+    leftAngles: [],
+    rightAngles: [],
+    leftROM: 0,
+    rightROM: 0,
+    imbalancePercent: 0
+  },
+
+  // 🆕 ROM completo
+  romTracker: {
+    minAngle: 999,
+    maxAngle: 0,
+    fullROMAchieved: false,
+    repROMs: [] // historial de ROM por rep
+  }
 };
 
 // Base de datos de ejercicios
@@ -39,7 +80,7 @@ const countdownOverlay = document.getElementById('countdown-overlay');
 const countdownNumber = document.getElementById('countdown-number');
 const alertBorder = document.getElementById('posture-alert-border');
 
-// ===== SISTEMA DE AUDIO Y VIBRACIÓN (FEEDBACK MULTISENSORIAL) =====
+// ===== SISTEMA DE AUDIO Y VIBRACIÓN =====
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 function playTone(freq, type, duration) {
@@ -60,7 +101,7 @@ function playTone(freq, type, duration) {
 }
 
 function triggerSuccessFeedback() {
-  playTone(880, 'sine', 0.18); // Pitido agudo de éxito
+  playTone(880, 'sine', 0.18);
   if (document.getElementById('toggle-vibrate').checked && navigator.vibrate) {
     navigator.vibrate(80);
   }
@@ -69,7 +110,7 @@ function triggerSuccessFeedback() {
 function triggerErrorFeedback() {
   const now = Date.now();
   if (now - workoutState.lastWarningSoundTime > 1800) {
-    playTone(220, 'sawtooth', 0.25); // Tono grave de advertencia
+    playTone(220, 'sawtooth', 0.25);
     if (document.getElementById('toggle-vibrate').checked && navigator.vibrate) {
       navigator.vibrate([100, 50, 100]);
     }
@@ -135,7 +176,7 @@ function runCountdown() {
   });
 }
 
-// ===== MATEMÁTICA Y SUAVIZADO DE PUNTOS (EMA FILTER) =====
+// ===== MATEMÁTICA Y SUAVIZADO =====
 function calculateAngle(a, b, c) {
   if (!a || !b || !c) return 0;
   const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
@@ -153,7 +194,6 @@ function smoothKeypoints(rawKeypoints) {
   const videoHeight = video.videoHeight;
   const maxX = Math.max(...rawKeypoints.map(kp => kp.x));
   const maxY = Math.max(...rawKeypoints.map(kp => kp.y));
-
   const scaled = rawKeypoints.map(kp => {
     let x = kp.x, y = kp.y;
     if (maxX <= 1.5 && maxY <= 1.5) {
@@ -171,7 +211,6 @@ function smoothKeypoints(rawKeypoints) {
     return scaled;
   }
 
-  // Factor de suavizado (0.55 = balance ideal entre fluidez y respuesta rápida)
   const alpha = 0.55;
   workoutState.smoothedKeypoints = scaled.map((kp, idx) => {
     const prev = workoutState.smoothedKeypoints[idx];
@@ -182,7 +221,6 @@ function smoothKeypoints(rawKeypoints) {
       score: kp.score
     };
   });
-
   return workoutState.smoothedKeypoints;
 }
 
@@ -224,7 +262,7 @@ function drawSkeleton(keypoints, badParts) {
   });
 }
 
-// ===== EVALUADORES BIOMECÁNICOS POR EJERCICIO =====
+// ===== EVALUADORES BIOMECÁNICOS =====
 function getBestSide(keypoints, joints) {
   const leftScore = joints.reduce((acc, j) => {
     const kp = keypoints.find(k => k.name === 'left_' + j);
@@ -237,10 +275,19 @@ function getBestSide(keypoints, joints) {
   return leftScore >= rightScore ? 'left' : 'right';
 }
 
-function registerRepCompleted(feedbackEl) {
+// 🆕 Registrar rep con validación de ROM + guardar métricas
+function registerRepCompleted(feedbackEl, fullROM = true, currentROM = 0) {
+  if (!fullROM) {
+    feedbackEl.textContent = `⚠️ Rep incompleta (${Math.round(currentROM)}°). Rango insuficiente`;
+    feedbackEl.style.color = '#ffd43b';
+    return;
+  }
+
   workoutState.currentRep++;
+  workoutState.romTracker.repROMs.push(currentROM);
   triggerSuccessFeedback();
   updateHUD();
+  updateMetricsPanel();
 
   if (workoutState.currentRep === workoutState.targetReps) {
     feedbackEl.textContent = `🎉 ¡Serie ${workoutState.currentSet} completada!`;
@@ -255,81 +302,296 @@ function registerRepCompleted(feedbackEl) {
   }
 }
 
-function evaluateCurl(keypoints, feedback) {
+// 🆕 Actualizar tempo (detecta cambios de fase)
+function updateTempo(angle, isDescending, now) {
+  const tt = workoutState.tempoTracker;
+
+  if (isDescending && tt.currentPhase !== 'eccentric') {
+    // Iniciamos fase excéntrica (bajada)
+    if (tt.currentPhase === 'concentric' || tt.currentPhase === 'idle') {
+      tt.eccentricDuration = 0;
+    }
+    tt.currentPhase = 'eccentric';
+    tt.lastPhaseChange = now;
+  } else if (!isDescending && tt.currentPhase === 'eccentric') {
+    // Pasamos de bajada a subida → pausa
+    tt.currentPhase = 'pause';
+    tt.lastPhaseChange = now;
+  } else if (!isDescending && tt.currentPhase === 'pause' && (now - tt.lastPhaseChange) > 150) {
+    // Después de la pausa, iniciamos concéntrica
+    tt.currentPhase = 'concentric';
+    tt.lastPhaseChange = now;
+  }
+
+  // Acumular duración de la fase actual
+  const phaseDuration = now - tt.lastPhaseChange;
+  if (tt.currentPhase === 'eccentric') tt.eccentricDuration = phaseDuration;
+  else if (tt.currentPhase === 'concentric') tt.concentricDuration = phaseDuration;
+}
+
+// 🆕 Actualizar velocidad y detectar fatiga
+function updateVelocity(keyPosition, now) {
+  const vt = workoutState.velocityTracker;
+  vt.positions.push({ x: keyPosition.x, y: keyPosition.y, t: now });
+
+  // Mantener solo los últimos 10 frames
+  if (vt.positions.length > 10) vt.positions.shift();
+
+  if (vt.positions.length >= 2) {
+    const last = vt.positions[vt.positions.length - 1];
+    const prev = vt.positions[vt.positions.length - 2];
+    const dt = (last.t - prev.t) || 1;
+    const dist = Math.sqrt(Math.pow(last.x - prev.x, 2) + Math.pow(last.y - prev.y, 2));
+    vt.currentVelocity = dist / dt; // px/ms
+
+    if (vt.currentVelocity > vt.peakVelocity) {
+      vt.peakVelocity = vt.currentVelocity;
+    }
+
+    // Pérdida de velocidad = fatiga
+    if (vt.peakVelocity > 0) {
+      vt.velocityLossPercent = Math.round(((vt.peakVelocity - vt.currentVelocity) / vt.peakVelocity) * 100);
+      vt.fatigueDetected = vt.velocityLossPercent > 40 && workoutState.currentRep >= 3;
+    }
+  }
+}
+
+// 🆕 Actualizar simetría bilateral
+function updateSymmetry(leftAngle, rightAngle) {
+  const st = workoutState.symmetryTracker;
+  if (leftAngle > 0) st.leftAngles.push(leftAngle);
+  if (rightAngle > 0) st.rightAngles.push(rightAngle);
+
+  // Calcular ROM de cada lado
+  if (st.leftAngles.length > 0) {
+    st.leftROM = Math.max(...st.leftAngles) - Math.min(...st.leftAngles);
+  }
+  if (st.rightAngles.length > 0) {
+    st.rightROM = Math.max(...st.rightAngles) - Math.min(...st.rightAngles);
+  }
+
+  // Calcular desbalance
+  if (st.leftROM > 0 && st.rightROM > 0) {
+    const maxROM = Math.max(st.leftROM, st.rightROM);
+    const diff = Math.abs(st.leftROM - st.rightROM);
+    st.imbalancePercent = Math.round((diff / maxROM) * 100);
+  }
+}
+
+// 🆕 Actualizar panel de métricas en vivo
+function updateMetricsPanel() {
+  const tt = workoutState.tempoTracker;
+  const vt = workoutState.velocityTracker;
+  const st = workoutState.symmetryTracker;
+
+  // Tempo
+  const tempoEl = document.getElementById('metric-tempo');
+  if (tempoEl) {
+    const ecc = (tt.eccentricDuration / 1000).toFixed(1);
+    const con = (tt.concentricDuration / 1000).toFixed(1);
+    tempoEl.textContent = `${ecc}s ↓ / ${con}s ↑`;
+  }
+
+  // TUT
+  const tutEl = document.getElementById('metric-tut');
+  if (tutEl) {
+    const tutSec = (workoutState.tut / 1000).toFixed(1);
+    tutEl.textContent = `${tutSec}s`;
+  }
+
+  // Fatiga
+  const fatigueEl = document.getElementById('metric-fatigue');
+  if (fatigueEl) {
+    fatigueEl.textContent = `${vt.velocityLossPercent}%`;
+    fatigueEl.style.color = vt.fatigueDetected ? '#ff4444' : '#00ff88';
+  }
+
+  // Simetría
+  const symEl = document.getElementById('metric-symmetry');
+  if (symEl) {
+    symEl.textContent = st.imbalancePercent > 0 ? `${st.imbalancePercent}% diff` : '—';
+    symEl.style.color = st.imbalancePercent > 15 ? '#ffd43b' : '#00ff88';
+  }
+}
+
+// ===== CURL DE BÍCEPS MEJORADO =====
+function evaluateCurl(keypoints, feedback, now) {
   let badParts = [];
   let warning = '';
 
-  ['left', 'right'].forEach(side => {
-    const s = keypoints.find(k => k.name === side + '_shoulder');
-    const e = keypoints.find(k => k.name === side + '_elbow');
-    const w = keypoints.find(k => k.name === side + '_wrist');
-    const otherS = keypoints.find(k => k.name === (side === 'left' ? 'right_shoulder' : 'left_shoulder'));
+  // 1. Detectar balanceo del torso (momentum)
+  const leftShoulder = keypoints.find(k => k.name === 'left_shoulder');
+  const rightShoulder = keypoints.find(k => k.name === 'right_shoulder');
+  const leftHip = keypoints.find(k => k.name === 'left_hip');
+  const rightHip = keypoints.find(k => k.name === 'right_hip');
 
-    if (s && e && w && s.score > 0.3 && e.score > 0.3 && w.score > 0.3) {
-      const shoulderWidth = (otherS && otherS.score > 0.3) ? distance(s, otherS) : 80;
-      if (Math.abs(e.x - s.x) > shoulderWidth * 0.28) {
-        badParts.push(side + '_shoulder', side + '_elbow', side + '_wrist');
-        warning = '❌ No adelantes los codos';
-      }
+  if (leftShoulder && rightShoulder && leftHip && rightHip &&
+      leftShoulder.score > 0.3 && rightShoulder.score > 0.3 &&
+      leftHip.score > 0.3 && rightHip.score > 0.3) {
+
+    const shoulderCenter = {
+      x: (leftShoulder.x + rightShoulder.x) / 2,
+      y: (leftShoulder.y + rightShoulder.y) / 2
+    };
+    const hipCenter = {
+      x: (leftHip.x + rightHip.x) / 2,
+      y: (leftHip.y + rightHip.y) / 2
+    };
+
+    const torsoSway = Math.abs(shoulderCenter.x - hipCenter.x);
+    const shoulderWidth = distance(leftShoulder, rightShoulder);
+
+    if (torsoSway > shoulderWidth * 0.15) {
+      badParts.push('left_shoulder', 'right_shoulder', 'left_hip', 'right_hip');
+      warning = '❌ No balancees el torso, aislá el bíceps';
     }
-  });
+  }
 
+  // 2. Verificar codo pegado al torso y ángulo
   const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
   const s = keypoints.find(k => k.name === side + '_shoulder');
   const e = keypoints.find(k => k.name === side + '_elbow');
   const w = keypoints.find(k => k.name === side + '_wrist');
+  const otherS = keypoints.find(k => k.name === (side === 'left' ? 'right_shoulder' : 'left_shoulder'));
 
   if (s && e && w && s.score > 0.3 && e.score > 0.3 && w.score > 0.3) {
+    const shoulderWidth = (otherS && otherS.score > 0.3) ? distance(s, otherS) : 80;
+    if (Math.abs(e.x - s.x) > shoulderWidth * 0.28) {
+      badParts.push(side + '_shoulder', side + '_elbow', side + '_wrist');
+      warning = warning || '❌ No adelantes los codos';
+    }
+
     const angle = calculateAngle(s, e, w);
+
+    // ROM tracking
+    if (angle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = angle;
+    if (angle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = angle;
+
+    // Tempo + velocidad
+    const isDescending = angle > 100;
+    updateTempo(angle, isDescending, now);
+    updateVelocity(w, now);
+
+    // Simetría
+    const leftAngle = keypoints.find(k => k.name === 'left_elbow') ?
+      calculateAngle(
+        keypoints.find(k => k.name === 'left_shoulder'),
+        keypoints.find(k => k.name === 'left_elbow'),
+        keypoints.find(k => k.name === 'left_wrist')
+      ) : 0;
+    const rightAngle = keypoints.find(k => k.name === 'right_elbow') ?
+      calculateAngle(
+        keypoints.find(k => k.name === 'right_shoulder'),
+        keypoints.find(k => k.name === 'right_elbow'),
+        keypoints.find(k => k.name === 'right_wrist')
+      ) : 0;
+    updateSymmetry(leftAngle, rightAngle);
+
+    // Lógica de fases
     if (angle > 155) {
       workoutState.stage = 'down';
+      workoutState.romTracker.fullROMAchieved = true;
       if (!warning) {
         feedback.textContent = 'Brazos extendidos. ¡Subí!';
         feedback.style.color = '#ffd43b';
       }
-    } else if (angle < 55 && workoutState.stage === 'down') {
+    } else if (angle < 45 && workoutState.stage === 'down') {
       workoutState.stage = 'up';
-      registerRepCompleted(feedback);
+      const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+      registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+      workoutState.romTracker.minAngle = 999;
+      workoutState.romTracker.maxAngle = 0;
+      workoutState.romTracker.fullROMAchieved = false;
     } else if (!warning && workoutState.stage === 'down') {
       feedback.textContent = `Subiendo... ${Math.round(angle)}°`;
       feedback.style.color = '#ffd43b';
     }
   }
+
   return { badParts, warning };
 }
 
-function evaluateSquat(keypoints, feedback) {
+// ===== SENTADILLA MEJORADA =====
+function evaluateSquat(keypoints, feedback, now) {
   let badParts = [];
   let warning = '';
-  const side = getBestSide(keypoints, ['shoulder', 'hip', 'knee', 'ankle']);
 
+  const side = getBestSide(keypoints, ['shoulder', 'hip', 'knee', 'ankle']);
   const shoulder = keypoints.find(k => k.name === side + '_shoulder');
   const hip = keypoints.find(k => k.name === side + '_hip');
   const knee = keypoints.find(k => k.name === side + '_knee');
   const ankle = keypoints.find(k => k.name === side + '_ankle');
 
+  // Detectar valgo de rodilla
+  const leftKnee = keypoints.find(k => k.name === 'left_knee');
+  const rightKnee = keypoints.find(k => k.name === 'right_knee');
+  const leftAnkle = keypoints.find(k => k.name === 'left_ankle');
+  const rightAnkle = keypoints.find(k => k.name === 'right_ankle');
+
+  if (leftKnee && rightKnee && leftAnkle && rightAnkle &&
+      leftKnee.score > 0.3 && rightKnee.score > 0.3 &&
+      leftAnkle.score > 0.3 && rightAnkle.score > 0.3) {
+
+    const kneeDistance = Math.abs(leftKnee.x - rightKnee.x);
+    const ankleDistance = Math.abs(leftAnkle.x - rightAnkle.x);
+    const valgusRatio = ankleDistance > 0 ? kneeDistance / ankleDistance : 1;
+
+    const kneeAngle = calculateAngle(hip, knee, ankle);
+
+    if (kneeAngle < 110 && valgusRatio < 0.7) {
+      badParts.push('left_knee', 'right_knee');
+      warning = '❌ Rodillas hacia adentro (valgo): empujalas afuera';
+    }
+  }
+
   if (hip && knee && ankle && hip.score > 0.3 && knee.score > 0.3 && ankle.score > 0.3) {
     const kneeAngle = calculateAngle(hip, knee, ankle);
 
-    // Verificar inclinación excesiva de torso
     if (shoulder && shoulder.score > 0.3) {
       const torsoAngle = calculateAngle(shoulder, hip, { x: hip.x, y: hip.y - 100 });
       if (torsoAngle > 48) {
         badParts.push(side + '_shoulder', side + '_hip');
-        warning = '❌ Mantené el pecho erguido';
+        warning = warning || '❌ Mantené el pecho erguido';
       }
     }
 
+    // Butt wink
+    if (hip.y > knee.y && kneeAngle < 95) {
+      badParts.push(side + '_hip');
+      warning = warning || '⚠️ Redondeo lumbar: no bajes más';
+    }
+
+    // ROM + tempo + velocidad
+    if (kneeAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = kneeAngle;
+    if (kneeAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = kneeAngle;
+
+    const isDescending = kneeAngle < 140;
+    updateTempo(kneeAngle, isDescending, now);
+    updateVelocity(hip, now);
+
+    // Simetría (rodillas)
+    const leftKneeAngle = (leftKnee && keypoints.find(k => k.name === 'left_hip') && leftAnkle) ?
+      calculateAngle(keypoints.find(k => k.name === 'left_hip'), leftKnee, leftAnkle) : 0;
+    const rightKneeAngle = (rightKnee && keypoints.find(k => k.name === 'right_hip') && rightAnkle) ?
+      calculateAngle(keypoints.find(k => k.name === 'right_hip'), rightKnee, rightAnkle) : 0;
+    updateSymmetry(leftKneeAngle, rightKneeAngle);
+
+    // Lógica de fases
     if (kneeAngle > 155) {
       if (workoutState.stage === 'down') {
         workoutState.stage = 'up';
-        registerRepCompleted(feedback);
+        const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+        registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+        workoutState.romTracker.minAngle = 999;
+        workoutState.romTracker.maxAngle = 0;
+        workoutState.romTracker.fullROMAchieved = false;
       } else if (!warning) {
         feedback.textContent = 'De pie. ¡Bajá a 90°!';
         feedback.style.color = '#ffd43b';
       }
     } else if (kneeAngle < 100) {
       workoutState.stage = 'down';
+      workoutState.romTracker.fullROMAchieved = true;
       if (!warning) {
         feedback.textContent = '✅ ¡Buena profundidad! Subí';
         feedback.style.color = '#00ff88';
@@ -339,37 +601,71 @@ function evaluateSquat(keypoints, feedback) {
       feedback.style.color = '#ffd43b';
     }
   }
+
   return { badParts, warning };
 }
 
-function evaluatePushupOrPress(keypoints, feedback, isPushup) {
+// ===== FLEXIONES MEJORADAS =====
+function evaluatePushup(keypoints, feedback, now) {
   let badParts = [];
   let warning = '';
-  const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
 
-  const s = keypoints.find(k => k.name === side + '_shoulder');
-  const e = keypoints.find(k => k.name === side + '_elbow');
-  const w = keypoints.find(k => k.name === side + '_wrist');
+  const side = getBestSide(keypoints, ['shoulder', 'hip', 'ankle']);
+  const shoulder = keypoints.find(k => k.name === side + '_shoulder');
+  const hip = keypoints.find(k => k.name === side + '_hip');
+  const ankle = keypoints.find(k => k.name === side + '_ankle');
+  const elbow = keypoints.find(k => k.name === side + '_elbow');
+  const wrist = keypoints.find(k => k.name === side + '_wrist');
 
-  if (s && e && w && s.score > 0.3 && e.score > 0.3 && w.score > 0.3) {
-    const elbowAngle = calculateAngle(s, e, w);
+  // Verificar alineación hombro-cadera-tobillo
+  if (shoulder && hip && ankle &&
+      shoulder.score > 0.3 && hip.score > 0.3 && ankle.score > 0.3) {
 
-    // Control de apertura excesiva de codos
-    if (Math.abs(e.y - s.y) < 15 && elbowAngle < 120) {
+    const bodyAlignment = calculateAngle(shoulder, hip, ankle);
+
+    if (bodyAlignment > 195) {
+      badParts.push(side + '_hip');
+      warning = '❌ Cadera muy alta: mantené línea recta';
+    } else if (bodyAlignment < 165) {
+      badParts.push(side + '_hip');
+      warning = warning || '❌ Cadera caída: activá el core';
+    }
+  }
+
+  if (shoulder && elbow && wrist &&
+      shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+
+    if (Math.abs(elbow.y - shoulder.y) < 15 && elbowAngle < 120) {
       badParts.push(side + '_shoulder', side + '_elbow', side + '_wrist');
-      warning = '❌ Codos muy abiertos (usá 45°)';
+      warning = warning || '❌ Codos muy abiertos (usá 45°)';
     }
 
+    // ROM + tempo + velocidad
+    if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
+    if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
+
+    const isDescending = elbowAngle > 110;
+    updateTempo(elbowAngle, isDescending, now);
+    updateVelocity(shoulder, now);
+
+    // Lógica de fases
     if (elbowAngle > 155) {
       if (workoutState.stage === 'down') {
         workoutState.stage = 'up';
-        registerRepCompleted(feedback);
+        const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+        registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+        workoutState.romTracker.minAngle = 999;
+        workoutState.romTracker.maxAngle = 0;
+        workoutState.romTracker.fullROMAchieved = false;
       } else if (!warning) {
-        feedback.textContent = isPushup ? 'Brazos firmes. ¡Bajá el pecho!' : 'Brazos extendidos. ¡Bajá!';
+        feedback.textContent = 'Brazos firmes. ¡Bajá el pecho!';
         feedback.style.color = '#ffd43b';
       }
     } else if (elbowAngle < 85) {
       workoutState.stage = 'down';
+      workoutState.romTracker.fullROMAchieved = true;
       if (!warning) {
         feedback.textContent = '✅ ¡Buen rango! Empujá';
         feedback.style.color = '#00ff88';
@@ -379,41 +675,195 @@ function evaluatePushupOrPress(keypoints, feedback, isPushup) {
       feedback.style.color = '#ffd43b';
     }
   }
+
   return { badParts, warning };
 }
 
-function evaluatePullExercise(keypoints, feedback) {
+// ===== PRESS DE BANCA (SEPARADO) =====
+function evaluateBenchPress(keypoints, feedback, now) {
   let badParts = [];
   let warning = '';
+
   const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
+  const shoulder = keypoints.find(k => k.name === side + '_shoulder');
+  const elbow = keypoints.find(k => k.name === side + '_elbow');
+  const wrist = keypoints.find(k => k.name === side + '_wrist');
+  const hip = keypoints.find(k => k.name === side + '_hip');
 
-  const s = keypoints.find(k => k.name === side + '_shoulder');
-  const e = keypoints.find(k => k.name === side + '_elbow');
-  const w = keypoints.find(k => k.name === side + '_wrist');
+  if (shoulder && elbow && wrist &&
+      shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
 
-  if (s && e && w && s.score > 0.3 && e.score > 0.3 && w.score > 0.3) {
-    const elbowAngle = calculateAngle(s, e, w);
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
 
+    // Detectar ángulo peligroso del codo
+    if (hip && hip.score > 0.3) {
+      const armTorsoAngle = calculateAngle(hip, shoulder, elbow);
+      if (armTorsoAngle > 85) {
+        badParts.push(side + '_shoulder', side + '_elbow');
+        warning = '❌ Codos a 90°: bajalos a 45° (protege tus hombros)';
+      }
+    }
+
+    // ROM + tempo + velocidad
+    if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
+    if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
+
+    const isDescending = elbowAngle > 110;
+    updateTempo(elbowAngle, isDescending, now);
+    updateVelocity(wrist, now);
+
+    // Lógica de fases
+    if (elbowAngle > 155) {
+      if (workoutState.stage === 'down') {
+        workoutState.stage = 'up';
+        const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+        registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+        workoutState.romTracker.minAngle = 999;
+        workoutState.romTracker.maxAngle = 0;
+        workoutState.romTracker.fullROMAchieved = false;
+      } else if (!warning) {
+        feedback.textContent = 'Brazos extendidos. ¡Bajá!';
+        feedback.style.color = '#ffd43b';
+      }
+    } else if (elbowAngle < 75) {
+      workoutState.stage = 'down';
+      workoutState.romTracker.fullROMAchieved = true;
+      if (!warning) {
+        feedback.textContent = '✅ ¡Buen rango! Empujá';
+        feedback.style.color = '#00ff88';
+      }
+    } else if (!warning) {
+      feedback.textContent = `Ángulo codo: ${Math.round(elbowAngle)}°`;
+      feedback.style.color = '#ffd43b';
+    }
+  }
+
+  return { badParts, warning };
+}
+
+// ===== JALÓN AL PECHO MEJORADO =====
+function evaluateLatPulldown(keypoints, feedback, now) {
+  let badParts = [];
+  let warning = '';
+
+  const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
+  const shoulder = keypoints.find(k => k.name === side + '_shoulder');
+  const elbow = keypoints.find(k => k.name === side + '_elbow');
+  const wrist = keypoints.find(k => k.name === side + '_wrist');
+  const hip = keypoints.find(k => k.name === side + '_hip');
+  const nose = keypoints.find(k => k.name === 'nose');
+
+  if (shoulder && elbow && wrist &&
+      shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
+
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+
+    if (nose && nose.score > 0.3 && hip && hip.score > 0.3) {
+      const torsoLeanBack = calculateAngle(nose, shoulder, hip);
+
+      if (wrist.y < nose.y && torsoLeanBack > 20) {
+        badParts.push(side + '_wrist');
+        warning = '❌ No lo lleves detrás del cuello: lesiona el hombro';
+      }
+
+      if (torsoLeanBack > 25) {
+        badParts.push(side + '_shoulder', side + '_hip');
+        warning = warning || '❌ Menos peso: no te arquees hacia atrás';
+      }
+    }
+
+    // ROM + tempo
+    if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
+    if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
+
+    const isDescending = elbowAngle > 110;
+    updateTempo(elbowAngle, isDescending, now);
+    updateVelocity(wrist, now);
+
+    // Lógica de fases
     if (elbowAngle > 150) {
       workoutState.stage = 'extended';
-      feedback.textContent = 'Brazos estirados. ¡Tirá!';
-      feedback.style.color = '#ffd43b';
+      workoutState.romTracker.fullROMAchieved = true;
+      if (!warning) {
+        feedback.textContent = 'Brazos estirados. ¡Tirá!';
+        feedback.style.color = '#ffd43b';
+      }
     } else if (elbowAngle < 75 && workoutState.stage === 'extended') {
       workoutState.stage = 'contracted';
-      registerRepCompleted(feedback);
-    } else {
+      const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+      registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+      workoutState.romTracker.minAngle = 999;
+      workoutState.romTracker.maxAngle = 0;
+      workoutState.romTracker.fullROMAchieved = false;
+    } else if (!warning) {
       feedback.textContent = `Recorrido codo: ${Math.round(elbowAngle)}°`;
       feedback.style.color = '#ffd43b';
     }
   }
+
   return { badParts, warning };
 }
 
-// ===== BUCLE PRINCIPAL DE DETECCIÓN =====
+// ===== REMO EN V MEJORADO =====
+function evaluateSeatedRow(keypoints, feedback, now) {
+  let badParts = [];
+  let warning = '';
+
+  const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
+  const shoulder = keypoints.find(k => k.name === side + '_shoulder');
+  const elbow = keypoints.find(k => k.name === side + '_elbow');
+  const wrist = keypoints.find(k => k.name === side + '_wrist');
+  const hip = keypoints.find(k => k.name === side + '_hip');
+
+  if (shoulder && elbow && wrist && hip &&
+      shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3 && hip.score > 0.3) {
+
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+    const torsoLeanBack = calculateAngle(hip, shoulder, { x: shoulder.x, y: shoulder.y - 100 });
+
+    if (torsoLeanBack > 20 && elbowAngle < 120) {
+      badParts.push(side + '_shoulder', side + '_hip');
+      warning = '❌ No uses el torso: tirá con la espalda';
+    }
+
+    // ROM + tempo
+    if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
+    if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
+
+    const isDescending = elbowAngle > 110;
+    updateTempo(elbowAngle, isDescending, now);
+    updateVelocity(wrist, now);
+
+    // Lógica de fases
+    if (elbowAngle > 150) {
+      workoutState.stage = 'extended';
+      workoutState.romTracker.fullROMAchieved = true;
+      if (!warning) {
+        feedback.textContent = 'Brazos estirados. ¡Tirá!';
+        feedback.style.color = '#ffd43b';
+      }
+    } else if (elbowAngle < 75 && workoutState.stage === 'extended') {
+      workoutState.stage = 'contracted';
+      const currentROM = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+      registerRepCompleted(feedback, workoutState.romTracker.fullROMAchieved, currentROM);
+      workoutState.romTracker.minAngle = 999;
+      workoutState.romTracker.maxAngle = 0;
+      workoutState.romTracker.fullROMAchieved = false;
+    } else if (!warning) {
+      feedback.textContent = `Recorrido codo: ${Math.round(elbowAngle)}°`;
+      feedback.style.color = '#ffd43b';
+    }
+  }
+
+  return { badParts, warning };
+}
+
+// ===== BUCLE PRINCIPAL =====
 async function detectPose() {
   if (isRunning) return;
   isRunning = true;
   const feedback = document.getElementById('feedback');
+  workoutState.lastFrameTime = Date.now();
 
   while (isRunning) {
     if (isSwitching) {
@@ -426,29 +876,44 @@ async function detectPose() {
         const poses = await detector.estimatePoses(video);
         if (poses.length > 0) {
           const keypoints = smoothKeypoints(poses[0].keypoints);
+          const now = Date.now();
           let result = { badParts: [], warning: '' };
 
           switch (workoutState.exercise) {
             case 'curl':
-              result = evaluateCurl(keypoints, feedback);
+              result = evaluateCurl(keypoints, feedback, now);
               break;
             case 'squat':
-              result = evaluateSquat(keypoints, feedback);
+              result = evaluateSquat(keypoints, feedback, now);
               break;
             case 'pushup':
-              result = evaluatePushupOrPress(keypoints, feedback, true);
+              result = evaluatePushup(keypoints, feedback, now);
               break;
             case 'bench_press':
             case 'incline_press':
-              result = evaluatePushupOrPress(keypoints, feedback, false);
+              result = evaluateBenchPress(keypoints, feedback, now);
               break;
             case 'lat_pulldown':
+              result = evaluateLatPulldown(keypoints, feedback, now);
+              break;
             case 'seated_row':
-              result = evaluatePullExercise(keypoints, feedback);
+              result = evaluateSeatedRow(keypoints, feedback, now);
               break;
           }
 
+          // 🆕 Actualizar TUT
+          const deltaTime = now - workoutState.lastFrameTime;
+          workoutState.lastFrameTime = now;
+          // Consideramos "bajo tensión" cuando no está en reposo (stage !== 'start')
+          if (workoutState.stage !== 'start' && result.badParts.length === 0) {
+            workoutState.tut += deltaTime;
+            workoutState.isUnderTension = true;
+          } else {
+            workoutState.isUnderTension = false;
+          }
+
           workoutState.totalFrames++;
+
           if (result.badParts.length > 0 && result.warning) {
             feedback.textContent = result.warning;
             feedback.style.color = '#ff4444';
@@ -460,11 +925,18 @@ async function detectPose() {
           }
 
           drawSkeleton(keypoints, result.badParts);
+
+          // Alerta de fatiga
+          if (workoutState.velocityTracker.fatigueDetected) {
+            const fatigueEl = document.getElementById('metric-fatigue');
+            if (fatigueEl) fatigueEl.textContent = '⚠️ FATIGA';
+          }
         }
       }
     } catch (error) {
       console.error('Error detección:', error);
     }
+
     await new Promise(r => setTimeout(r, 40));
   }
 }
@@ -485,6 +957,9 @@ function showNextSetButton() {
       workoutState.currentSet++;
       workoutState.currentRep = 0;
       workoutState.stage = 'start';
+      // Resetear trackers por serie
+      workoutState.romTracker = { minAngle: 999, maxAngle: 0, fullROMAchieved: false, repROMs: workoutState.romTracker.repROMs };
+      workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0 };
       updateHUD();
       controlsBottom.style.display = 'none';
       const feedback = document.getElementById('feedback');
@@ -504,19 +979,36 @@ function finishWorkout() {
   if (video && video.srcObject) {
     video.srcObject.getTracks().forEach(t => t.stop());
   }
-
   const elapsedSec = Math.max(1, Math.floor((Date.now() - workoutState.startTime) / 1000));
   const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
   const secs = String(elapsedSec % 60).padStart(2, '0');
   const accuracy = workoutState.totalFrames > 0
     ? Math.round((workoutState.goodFrames / workoutState.totalFrames) * 100)
     : 100;
-
   const exObj = exercisesDB.find(e => e.id === workoutState.exercise);
+
   document.getElementById('summary-exercise-name').textContent = exObj ? exObj.name : '';
-  document.getElementById('stat-reps').textContent = (workoutState.targetSets - 1) * workoutState.targetReps + workoutState.currentRep;
+  document.getElementById('stat-reps').textContent = (workoutState.currentSet - 1) * workoutState.targetReps + workoutState.currentRep;
   document.getElementById('stat-time').textContent = `${mins}:${secs}`;
   document.getElementById('stat-accuracy').textContent = `${accuracy}%`;
+
+  // 🆕 Métricas avanzadas en resumen
+  const avgROM = workoutState.romTracker.repROMs.length > 0
+    ? Math.round(workoutState.romTracker.repROMs.reduce((a, b) => a + b, 0) / workoutState.romTracker.repROMs.length)
+    : 0;
+  const avgTempoEcc = (workoutState.tempoTracker.eccentricDuration / 1000).toFixed(1);
+  const avgTempoCon = (workoutState.tempoTracker.concentricDuration / 1000).toFixed(1);
+  const tutSec = (workoutState.tut / 1000).toFixed(1);
+
+  const statROM = document.getElementById('stat-rom');
+  const statTempo = document.getElementById('stat-tempo');
+  const statTUT = document.getElementById('stat-tut');
+  const statSymmetry = document.getElementById('stat-symmetry');
+
+  if (statROM) statROM.textContent = `${avgROM}°`;
+  if (statTempo) statTempo.textContent = `${avgTempoEcc}-${avgTempoCon}`;
+  if (statTUT) statTUT.textContent = `${tutSec}s`;
+  if (statSymmetry) statSymmetry.textContent = `${workoutState.symmetryTracker.imbalancePercent}%`;
 
   workoutScreen.style.display = 'none';
   document.getElementById('summary-modal').style.display = 'flex';
@@ -534,20 +1026,12 @@ function renderExerciseList(query = '') {
     const matchText = ex.name.toLowerCase().includes(query.toLowerCase().trim());
     return matchCat && matchText;
   });
-
   if (filtered.length === 0) {
     searchResults.classList.remove('active');
     return;
   }
-
-  searchResults.innerHTML = filtered.map(ex => `
-    <div class="search-result-item" data-id="${ex.id}">
-      <div class="thumb">${ex.icon}</div>
-      <div class="name">${ex.name}</div>
-    </div>
-  `).join('');
+  searchResults.innerHTML = filtered.map(ex => `<div class="search-result-item" data-id="${ex.id}"> <div class="thumb">${ex.icon}</div> <div class="name">${ex.name}</div> </div>`).join('');
   searchResults.classList.add('active');
-
   searchResults.querySelectorAll('.search-result-item').forEach(item => {
     item.addEventListener('click', () => {
       const ex = exercisesDB.find(e => e.id === item.dataset.id);
@@ -594,12 +1078,16 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   workoutState.totalFrames = 0;
   workoutState.goodFrames = 0;
   workoutState.smoothedKeypoints = null;
+  workoutState.tut = 0;
+  workoutState.romTracker = { minAngle: 999, maxAngle: 0, fullROMAchieved: false, repROMs: [] };
+  workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0 };
+  workoutState.velocityTracker = { positions: [], currentVelocity: 0, peakVelocity: 0, velocityLossPercent: 0, fatigueDetected: false };
+  workoutState.symmetryTracker = { leftAngles: [], rightAngles: [], leftROM: 0, rightROM: 0, imbalancePercent: 0 };
 
   updateHUD();
   setupScreen.style.display = 'none';
   workoutScreen.style.display = 'flex';
   controlsBottom.style.display = 'none';
-
   const feedback = document.getElementById('feedback');
   try {
     feedback.textContent = '📹 Preparando cámara...';
@@ -647,19 +1135,19 @@ document.getElementById('btn-finish-home').addEventListener('click', () => {
 const exerciseInstructions = {
   curl: {
     title: '💪 Curl de Bíceps',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De frente al celular, a 1.5 - 2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Extensión y flexión completa del codo, y que no adelantes los brazos al subir.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De frente al celular, a 1.5-2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Balanceo del torso, codos pegados al cuerpo, flexión completa (45°), ROM completo.</div>'
   },
   squat: {
     title: '🦵 Sentadilla',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL al celular, a 2 - 3 metros, cuerpo completo visible.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Que rompas los 90° de rodilla y mantengas la espalda erguida.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL al celular, a 2-3 metros, cuerpo completo visible.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Valgo de rodilla, butt wink, torso erguido, profundidad 90°, simetría bilateral.</div>'
   },
   pushup: {
     title: '💪 Flexiones',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL en el suelo, a 1.5 - 2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Profundidad del pecho y que los codos no se abran excesivamente.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL en el suelo, a 1.5-2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Alineación hombro-cadera-tobillo, cadera caída o muy alta, apertura de codos.</div>'
   },
   bench_press: {
     title: '🏋️ Press de Banca',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la banca, a 1.5 - 2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Ángulo seguro de codos y recorrido completo.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la banca, a 1.5-2 metros.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Ángulo seguro de codos (45-75°), recorrido completo, tempo controlado.</div>'
   },
   incline_press: {
     title: '📐 Press Inclinado',
@@ -667,11 +1155,11 @@ const exerciseInstructions = {
   },
   lat_pulldown: {
     title: '⬇️ Jalón al Pecho',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la polea, sentado y visible.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Extensión superior completa y tracción hasta el pecho.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la polea, sentado y visible.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> No llevar detrás del cuello, hiperextensión lumbar, extensión completa.</div>'
   },
   seated_row: {
     title: '🚣 Remo en V',
-    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la máquina de remo.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Estiramiento de brazos y contracción final.</div>'
+    content: '<div class="instruction-item"><strong>📱 Ubicación:</strong> De PERFIL a la máquina de remo.</div><div class="instruction-item"><strong>✅ Qué revisa la IA:</strong> Uso excesivo del torso, estiramiento y contracción completos.</div>'
   }
 };
 
@@ -685,9 +1173,11 @@ document.getElementById('btn-help').addEventListener('click', () => {
 document.querySelector('.close-modal').addEventListener('click', () => {
   document.getElementById('help-modal').style.display = 'none';
 });
+
 document.getElementById('btn-close-modal').addEventListener('click', () => {
   document.getElementById('help-modal').style.display = 'none';
 });
+
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.search-container')) searchResults.classList.remove('active');
 });
