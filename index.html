@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0A0E1A" />
-  <meta name="description" content="Personal Trainer IA que corrige tu postura en tiempo real usando visión por computadora" />
+  <meta name="description" content="Personal Trainer IA que corrige tu postura en tiempo real" />
   <title>Personal Trainer IA Pro</title>
 
-  <!-- Fuentes profesionales -->
+  <!-- Fuentes profesionales (Inter) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -44,7 +44,7 @@
         </button>
       </div>
 
-      <!-- Buscador -->
+      <!-- Buscador de ejercicios -->
       <div class="search-container">
         <label class="field-label">
           Ejercicio:
@@ -118,7 +118,7 @@
 
   <!-- ============ PANTALLA DE ENTRENAMIENTO ============ -->
   <div id="workout-screen" style="display:none;">
-    <div class="video-wrapper">
+    <div class="video-wrapper" id="video-wrapper">
       <!-- Alerta visual periférica -->
       <div id="posture-alert-border" class="posture-alert-border"></div>
 
@@ -142,23 +142,41 @@
       <!-- HUD: Botón volver -->
       <button id="btn-back" class="overlay-btn bottom-left" title="Volver">✖</button>
 
-      <!-- 🆕 Panel de métricas avanzadas en vivo -->
-      <div class="metrics-panel">
-        <div class="metric-item">
-          <span class="metric-label">Tempo</span>
-          <span class="metric-value" id="metric-tempo">—</span>
+      <!-- 🆕 Panel de métricas ADAPTATIVO -->
+      <div id="metrics-panel" class="metrics-panel collapsed" data-position="bottom">
+        <!-- Semáforo de estado (siempre visible) -->
+        <div class="status-indicator" id="status-indicator">
+          <div class="status-dot"></div>
+          <span class="status-text" id="status-text">OK</span>
         </div>
-        <div class="metric-item">
-          <span class="metric-label">TUT</span>
-          <span class="metric-value" id="metric-tut">0.0s</span>
+
+        <!-- Métrica principal (siempre visible) -->
+        <div class="metric-primary">
+          <span class="metric-label" id="primary-metric-label">Tempo</span>
+          <span class="metric-value" id="primary-metric-value">—</span>
         </div>
-        <div class="metric-item">
-          <span class="metric-label">Fatiga</span>
-          <span class="metric-value" id="metric-fatigue">0%</span>
-        </div>
-        <div class="metric-item">
-          <span class="metric-label">Simetría</span>
-          <span class="metric-value" id="metric-symmetry">—</span>
+
+        <!-- Botón expandir -->
+        <button class="metrics-toggle" id="metrics-toggle" aria-label="Ver más métricas">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <!-- Métricas expandidas (ocultas por defecto) -->
+        <div class="metrics-expanded">
+          <div class="metric-item">
+            <span class="metric-label">TUT</span>
+            <span class="metric-value" id="metric-tut">0.0s</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Fatiga</span>
+            <span class="metric-value" id="metric-fatigue">0%</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Simetría</span>
+            <span class="metric-value" id="metric-symmetry">—</span>
+          </div>
         </div>
       </div>
 
@@ -167,7 +185,7 @@
         <div id="countdown-number" class="countdown-number">3</div>
       </div>
 
-      <!-- Controles inferiores (botón pasar serie) -->
+      <!-- Controles inferiores -->
       <div id="controls-bottom" class="controls"></div>
     </div>
   </div>
@@ -191,7 +209,6 @@
           <span class="stat-value" id="stat-accuracy">0%</span>
           <span class="stat-label">Precisión Técnica</span>
         </div>
-        <!-- 🆕 Nuevas métricas profesionales -->
         <div class="stat-box stat-box-accent">
           <span class="stat-value" id="stat-rom">0°</span>
           <span class="stat-label">ROM Promedio</span>
