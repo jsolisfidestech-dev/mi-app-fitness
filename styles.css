@@ -131,7 +131,11 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
-.tab-icon { font-size: 20px; }
+.tab-icon {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+}
 
 /* ===== BUSCADOR ===== */
 .search-container { margin-bottom: 16px; position: relative; }
@@ -178,6 +182,13 @@ body {
 
 #exercise-search::placeholder { color: var(--color-text-muted); }
 
+.search-icon {
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-text-muted);
+  margin-left: 8px;
+}
+
 .search-results {
   position: absolute;
   width: 100%;
@@ -215,7 +226,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+}
+
+.search-result-item .thumb svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--color-primary);
 }
 
 .search-result-item .name {
@@ -235,8 +251,14 @@ body {
   color: var(--color-primary);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   transition: all 0.25s;
+}
+
+.selected-exercise svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-primary);
 }
 
 /* ===== BOTÓN GUÍA ===== */
@@ -260,6 +282,12 @@ body {
   font-family: inherit;
 }
 
+.btn-guide svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
 .btn-guide:active { transform: scale(0.98); }
 
 .info-badge {
@@ -273,9 +301,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
   border: 2px solid var(--color-bg-card);
-  font-weight: 700;
+}
+
+.info-badge svg {
+  width: 12px;
+  height: 12px;
+  stroke: white;
 }
 
 /* ===== TOGGLES ===== */
@@ -299,6 +331,12 @@ body {
   cursor: pointer;
   border: 1px solid var(--color-border);
   transition: all 0.2s;
+}
+
+.toggle-item svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
 }
 
 .toggle-item:hover { border-color: rgba(0, 230, 118, 0.3); }
@@ -381,14 +419,9 @@ body {
 .btn-start:active { transform: scale(0.98); }
 
 .btn-icon {
-  font-size: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 /* ===== MODALES ===== */
@@ -425,11 +458,15 @@ body {
   top: 14px;
   right: 18px;
   color: var(--color-text-muted);
-  font-size: 28px;
-  font-weight: bold;
   cursor: pointer;
   transition: color 0.2s;
   line-height: 1;
+}
+
+.close-modal svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
 }
 
 .close-modal:hover { color: white; }
@@ -440,6 +477,12 @@ body {
   font-size: 21px;
   text-align: center;
   font-weight: 800;
+}
+
+.modal-content h2 svg {
+  width: 28px;
+  height: 28px;
+  stroke: var(--color-primary);
 }
 
 .modal-body {
@@ -653,8 +696,13 @@ body {
   z-index: 30;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  font-size: 20px;
   transition: transform 0.15s, background 0.2s;
+}
+
+.overlay-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: white;
 }
 
 .overlay-btn:active { transform: scale(0.9); }
@@ -684,6 +732,15 @@ body {
   white-space: nowrap;
   font-family: inherit;
   transition: transform 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.controls button svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
 }
 
 .controls button:active { transform: scale(0.96); }
@@ -717,7 +774,7 @@ body {
 .countdown-number.fade { opacity: 0; transform: scale(1.5); }
 .countdown-number.go { color: var(--color-warning); font-size: 110px; text-shadow: 0 0 50px rgba(255, 212, 59, 0.9); }
 
-/* ===== 🆕 PANEL DE MÉTRICAS ADAPTATIVO ===== */
+/* ===== PANEL DE MÉTRICAS ADAPTATIVO ===== */
 .metrics-panel {
   position: absolute;
   left: 50%;
@@ -737,7 +794,6 @@ body {
   max-width: 92%;
 }
 
-/* Posiciones adaptativas según ejercicio */
 .metrics-panel[data-position="bottom"] {
   bottom: 90px;
 }
@@ -747,7 +803,6 @@ body {
   bottom: auto;
 }
 
-/* Estado colapsado */
 .metrics-panel.collapsed .metrics-expanded {
   display: none;
 }
@@ -757,20 +812,17 @@ body {
   gap: 8px;
 }
 
-/* Estado expandido */
 .metrics-panel:not(.collapsed) {
   padding: 12px 16px;
   gap: 12px;
 }
 
-/* Estado oculto (auto-hide) */
 .metrics-panel.hidden {
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%) translateY(10px);
 }
 
-/* ===== Indicador de estado (semáforo) ===== */
 .status-indicator {
   display: flex;
   align-items: center;
@@ -823,7 +875,6 @@ body {
 .status-indicator.warning .status-text { color: var(--color-warning); }
 .status-indicator.error .status-text { color: var(--color-error); }
 
-/* ===== Métrica principal ===== */
 .metric-primary {
   display: flex;
   flex-direction: column;
@@ -848,7 +899,6 @@ body {
   line-height: 1.1;
 }
 
-/* ===== Botón toggle ===== */
 .metrics-toggle {
   width: 28px;
   height: 28px;
@@ -864,6 +914,12 @@ body {
   padding: 0;
 }
 
+.metrics-toggle svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
 .metrics-toggle:active { transform: scale(0.9); }
 
 .metrics-panel:not(.collapsed) .metrics-toggle svg {
@@ -874,7 +930,6 @@ body {
   background: rgba(0, 230, 118, 0.25);
 }
 
-/* ===== Métricas expandidas ===== */
 .metrics-expanded {
   display: flex;
   gap: 8px;
