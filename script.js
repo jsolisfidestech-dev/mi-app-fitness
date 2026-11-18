@@ -3,7 +3,7 @@ let currentFacingMode = 'user';
 let isSwitching = false;
 let isRunning = false;
 
-// ===== ESTADO MEJORADO DEL ENTRENAMIENTO =====
+// ===== ESTADO DEL ENTRENAMIENTO (con métricas avanzadas) =====
 const workoutState = {
   exercise: 'curl',
   targetSets: 3,
@@ -17,22 +17,22 @@ const workoutState = {
   lastWarningSoundTime: 0,
   smoothedKeypoints: null,
 
-  // 🆕 Tempo Training
+  // Tempo Training
   tempoTracker: {
     phaseStartTime: 0,
-    currentPhase: 'idle', // 'eccentric', 'pause', 'concentric'
+    currentPhase: 'idle',
     eccentricDuration: 0,
     pauseDuration: 0,
     concentricDuration: 0,
     lastPhaseChange: 0
   },
 
-  // 🆕 Time Under Tension
+  // Time Under Tension
   tut: 0,
   lastFrameTime: 0,
   isUnderTension: false,
 
-  // 🆕 Velocidad y fatiga
+  // Velocidad y fatiga
   velocityTracker: {
     positions: [],
     currentVelocity: 0,
@@ -41,7 +41,7 @@ const workoutState = {
     fatigueDetected: false
   },
 
-  // 🆕 Simetría bilateral
+  // Simetría bilateral
   symmetryTracker: {
     leftAngles: [],
     rightAngles: [],
@@ -50,12 +50,12 @@ const workoutState = {
     imbalancePercent: 0
   },
 
-  // 🆕 ROM completo
+  // Rango de movimiento
   romTracker: {
     minAngle: 999,
     maxAngle: 0,
     fullROMAchieved: false,
-    repROMs: [] // historial de ROM por rep
+    repROMs: []
   }
 };
 
@@ -69,6 +69,28 @@ const exercisesDB = [
   { id: 'lat_pulldown', name: 'Jalón al Pecho', icon: '⬇️', category: 'upper' },
   { id: 'seated_row', name: 'Remo en V', icon: '🚣', category: 'upper' }
 ];
+
+// 🆕 Mapeo: dónde va el panel según ejercicio (para no tapar zonas críticas)
+const exercisePanelPosition = {
+  curl: 'bottom',
+  squat: 'top',        // piernas abajo → panel arriba
+  pushup: 'top',
+  bench_press: 'top',
+  incline_press: 'top',
+  lat_pulldown: 'bottom',
+  seated_row: 'bottom'
+};
+
+// 🆕 Mapeo: qué métrica mostrar como "principal" según ejercicio
+const exercisePrimaryMetric = {
+  curl: { label: 'Tempo', id: 'metric-tempo' },
+  squat: { label: 'ROM', id: 'metric-rom' },
+  pushup: { label: 'Alineación', id: 'metric-alignment' },
+  bench_press: { label: 'Ángulo', id: 'metric-angle' },
+  incline_press: { label: 'Ángulo', id: 'metric-angle' },
+  lat_pulldown: { label: 'Tempo', id: 'metric-tempo' },
+  seated_row: { label: 'Tempo', id: 'metric-tempo' }
+};
 
 // Referencias DOM
 const setupScreen = document.getElementById('setup-screen');
@@ -275,7 +297,7 @@ function getBestSide(keypoints, joints) {
   return leftScore >= rightScore ? 'left' : 'right';
 }
 
-// 🆕 Registrar rep con validación de ROM + guardar métricas
+// 🆕 Registrar rep con validación de ROM
 function registerRepCompleted(feedbackEl, fullROM = true, currentROM = 0) {
   if (!fullROM) {
     feedbackEl.textContent = `⚠️ Rep incompleta (${Math.round(currentROM)}°). Rango insuficiente`;
@@ -302,28 +324,24 @@ function registerRepCompleted(feedbackEl, fullROM = true, currentROM = 0) {
   }
 }
 
-// 🆕 Actualizar tempo (detecta cambios de fase)
+// 🆕 Actualizar tempo
 function updateTempo(angle, isDescending, now) {
   const tt = workoutState.tempoTracker;
 
   if (isDescending && tt.currentPhase !== 'eccentric') {
-    // Iniciamos fase excéntrica (bajada)
     if (tt.currentPhase === 'concentric' || tt.currentPhase === 'idle') {
       tt.eccentricDuration = 0;
     }
     tt.currentPhase = 'eccentric';
     tt.lastPhaseChange = now;
   } else if (!isDescending && tt.currentPhase === 'eccentric') {
-    // Pasamos de bajada a subida → pausa
     tt.currentPhase = 'pause';
     tt.lastPhaseChange = now;
   } else if (!isDescending && tt.currentPhase === 'pause' && (now - tt.lastPhaseChange) > 150) {
-    // Después de la pausa, iniciamos concéntrica
     tt.currentPhase = 'concentric';
     tt.lastPhaseChange = now;
   }
 
-  // Acumular duración de la fase actual
   const phaseDuration = now - tt.lastPhaseChange;
   if (tt.currentPhase === 'eccentric') tt.eccentricDuration = phaseDuration;
   else if (tt.currentPhase === 'concentric') tt.concentricDuration = phaseDuration;
@@ -334,7 +352,6 @@ function updateVelocity(keyPosition, now) {
   const vt = workoutState.velocityTracker;
   vt.positions.push({ x: keyPosition.x, y: keyPosition.y, t: now });
 
-  // Mantener solo los últimos 10 frames
   if (vt.positions.length > 10) vt.positions.shift();
 
   if (vt.positions.length >= 2) {
@@ -342,13 +359,12 @@ function updateVelocity(keyPosition, now) {
     const prev = vt.positions[vt.positions.length - 2];
     const dt = (last.t - prev.t) || 1;
     const dist = Math.sqrt(Math.pow(last.x - prev.x, 2) + Math.pow(last.y - prev.y, 2));
-    vt.currentVelocity = dist / dt; // px/ms
+    vt.currentVelocity = dist / dt;
 
     if (vt.currentVelocity > vt.peakVelocity) {
       vt.peakVelocity = vt.currentVelocity;
     }
 
-    // Pérdida de velocidad = fatiga
     if (vt.peakVelocity > 0) {
       vt.velocityLossPercent = Math.round(((vt.peakVelocity - vt.currentVelocity) / vt.peakVelocity) * 100);
       vt.fatigueDetected = vt.velocityLossPercent > 40 && workoutState.currentRep >= 3;
@@ -362,7 +378,6 @@ function updateSymmetry(leftAngle, rightAngle) {
   if (leftAngle > 0) st.leftAngles.push(leftAngle);
   if (rightAngle > 0) st.rightAngles.push(rightAngle);
 
-  // Calcular ROM de cada lado
   if (st.leftAngles.length > 0) {
     st.leftROM = Math.max(...st.leftAngles) - Math.min(...st.leftAngles);
   }
@@ -370,7 +385,6 @@ function updateSymmetry(leftAngle, rightAngle) {
     st.rightROM = Math.max(...st.rightAngles) - Math.min(...st.rightAngles);
   }
 
-  // Calcular desbalance
   if (st.leftROM > 0 && st.rightROM > 0) {
     const maxROM = Math.max(st.leftROM, st.rightROM);
     const diff = Math.abs(st.leftROM - st.rightROM);
@@ -378,13 +392,12 @@ function updateSymmetry(leftAngle, rightAngle) {
   }
 }
 
-// 🆕 Actualizar panel de métricas en vivo
+// 🆕 Actualizar panel de métricas
 function updateMetricsPanel() {
   const tt = workoutState.tempoTracker;
   const vt = workoutState.velocityTracker;
   const st = workoutState.symmetryTracker;
 
-  // Tempo
   const tempoEl = document.getElementById('metric-tempo');
   if (tempoEl) {
     const ecc = (tt.eccentricDuration / 1000).toFixed(1);
@@ -392,26 +405,112 @@ function updateMetricsPanel() {
     tempoEl.textContent = `${ecc}s ↓ / ${con}s ↑`;
   }
 
-  // TUT
   const tutEl = document.getElementById('metric-tut');
-  if (tutEl) {
-    const tutSec = (workoutState.tut / 1000).toFixed(1);
-    tutEl.textContent = `${tutSec}s`;
-  }
+  if (tutEl) tutEl.textContent = `${(workoutState.tut / 1000).toFixed(1)}s`;
 
-  // Fatiga
   const fatigueEl = document.getElementById('metric-fatigue');
   if (fatigueEl) {
     fatigueEl.textContent = `${vt.velocityLossPercent}%`;
     fatigueEl.style.color = vt.fatigueDetected ? '#ff4444' : '#00ff88';
   }
 
-  // Simetría
   const symEl = document.getElementById('metric-symmetry');
   if (symEl) {
-    symEl.textContent = st.imbalancePercent > 0 ? `${st.imbalancePercent}% diff` : '—';
+    symEl.textContent = st.imbalancePercent > 0 ? `${st.imbalancePercent}%` : '—';
     symEl.style.color = st.imbalancePercent > 15 ? '#ffd43b' : '#00ff88';
   }
+
+  updatePrimaryMetric();
+}
+
+// 🆕 Actualizar métrica principal
+function updatePrimaryMetric() {
+  const primary = exercisePrimaryMetric[workoutState.exercise];
+  if (!primary) return;
+
+  const valueEl = document.getElementById('primary-metric-value');
+  if (!valueEl) return;
+
+  switch (primary.id) {
+    case 'metric-tempo': {
+      const tt = workoutState.tempoTracker;
+      const ecc = (tt.eccentricDuration / 1000).toFixed(1);
+      const con = (tt.concentricDuration / 1000).toFixed(1);
+      valueEl.textContent = `${ecc}↓/${con}↑`;
+      break;
+    }
+    case 'metric-rom': {
+      const rom = workoutState.romTracker.maxAngle - workoutState.romTracker.minAngle;
+      valueEl.textContent = rom > 0 ? `${Math.round(rom)}°` : '—';
+      break;
+    }
+    case 'metric-angle':
+    case 'metric-alignment':
+      valueEl.textContent = '—';
+      break;
+  }
+}
+
+// 🆕 Actualizar indicador de estado (semáforo)
+function updateStatusIndicator(status, text) {
+  const indicator = document.getElementById('status-indicator');
+  const statusText = document.getElementById('status-text');
+  if (!indicator || !statusText) return;
+
+  indicator.classList.remove('warning', 'error');
+  if (status === 'error') {
+    indicator.classList.add('error');
+    statusText.textContent = text || 'ERROR';
+  } else if (status === 'warning') {
+    indicator.classList.add('warning');
+    statusText.textContent = text || 'ATENCIÓN';
+  } else {
+    statusText.textContent = text || 'OK';
+  }
+}
+
+// 🆕 Configurar panel según ejercicio
+function configureMetricsPanel() {
+  const panel = document.getElementById('metrics-panel');
+  if (!panel) return;
+
+  const position = exercisePanelPosition[workoutState.exercise] || 'bottom';
+  panel.setAttribute('data-position', position);
+
+  const primary = exercisePrimaryMetric[workoutState.exercise] || { label: 'Tempo', id: 'metric-tempo' };
+  const primaryLabel = document.getElementById('primary-metric-label');
+  if (primaryLabel) primaryLabel.textContent = primary.label;
+
+  panel.classList.add('collapsed');
+  resetMetricsAutoHide();
+}
+
+// 🆕 Toggle expandir/colapsar
+function toggleMetricsPanel() {
+  const panel = document.getElementById('metrics-panel');
+  if (!panel) return;
+  panel.classList.toggle('collapsed');
+  resetMetricsAutoHide();
+}
+
+// 🆕 Mostrar panel
+function showMetricsPanel() {
+  const panel = document.getElementById('metrics-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  resetMetricsAutoHide();
+}
+
+// 🆕 Auto-hide después de 6s
+let metricsAutoHideTimer = null;
+function resetMetricsAutoHide() {
+  if (metricsAutoHideTimer) clearTimeout(metricsAutoHideTimer);
+  metricsAutoHideTimer = setTimeout(() => {
+    const panel = document.getElementById('metrics-panel');
+    if (panel && panel.classList.contains('collapsed')) {
+      panel.classList.add('hidden');
+    }
+  }, 6000);
 }
 
 // ===== CURL DE BÍCEPS MEJORADO =====
@@ -419,7 +518,7 @@ function evaluateCurl(keypoints, feedback, now) {
   let badParts = [];
   let warning = '';
 
-  // 1. Detectar balanceo del torso (momentum)
+  // Detectar balanceo del torso
   const leftShoulder = keypoints.find(k => k.name === 'left_shoulder');
   const rightShoulder = keypoints.find(k => k.name === 'right_shoulder');
   const leftHip = keypoints.find(k => k.name === 'left_hip');
@@ -447,7 +546,6 @@ function evaluateCurl(keypoints, feedback, now) {
     }
   }
 
-  // 2. Verificar codo pegado al torso y ángulo
   const side = getBestSide(keypoints, ['shoulder', 'elbow', 'wrist']);
   const s = keypoints.find(k => k.name === side + '_shoulder');
   const e = keypoints.find(k => k.name === side + '_elbow');
@@ -463,11 +561,9 @@ function evaluateCurl(keypoints, feedback, now) {
 
     const angle = calculateAngle(s, e, w);
 
-    // ROM tracking
     if (angle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = angle;
     if (angle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = angle;
 
-    // Tempo + velocidad
     const isDescending = angle > 100;
     updateTempo(angle, isDescending, now);
     updateVelocity(w, now);
@@ -487,7 +583,6 @@ function evaluateCurl(keypoints, feedback, now) {
       ) : 0;
     updateSymmetry(leftAngle, rightAngle);
 
-    // Lógica de fases
     if (angle > 155) {
       workoutState.stage = 'down';
       workoutState.romTracker.fullROMAchieved = true;
@@ -522,7 +617,7 @@ function evaluateSquat(keypoints, feedback, now) {
   const knee = keypoints.find(k => k.name === side + '_knee');
   const ankle = keypoints.find(k => k.name === side + '_ankle');
 
-  // Detectar valgo de rodilla
+  // Valgo de rodilla
   const leftKnee = keypoints.find(k => k.name === 'left_knee');
   const rightKnee = keypoints.find(k => k.name === 'right_knee');
   const leftAnkle = keypoints.find(k => k.name === 'left_ankle');
@@ -561,7 +656,6 @@ function evaluateSquat(keypoints, feedback, now) {
       warning = warning || '⚠️ Redondeo lumbar: no bajes más';
     }
 
-    // ROM + tempo + velocidad
     if (kneeAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = kneeAngle;
     if (kneeAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = kneeAngle;
 
@@ -569,14 +663,13 @@ function evaluateSquat(keypoints, feedback, now) {
     updateTempo(kneeAngle, isDescending, now);
     updateVelocity(hip, now);
 
-    // Simetría (rodillas)
+    // Simetría
     const leftKneeAngle = (leftKnee && keypoints.find(k => k.name === 'left_hip') && leftAnkle) ?
       calculateAngle(keypoints.find(k => k.name === 'left_hip'), leftKnee, leftAnkle) : 0;
     const rightKneeAngle = (rightKnee && keypoints.find(k => k.name === 'right_hip') && rightAnkle) ?
       calculateAngle(keypoints.find(k => k.name === 'right_hip'), rightKnee, rightAnkle) : 0;
     updateSymmetry(leftKneeAngle, rightKneeAngle);
 
-    // Lógica de fases
     if (kneeAngle > 155) {
       if (workoutState.stage === 'down') {
         workoutState.stage = 'up';
@@ -617,7 +710,7 @@ function evaluatePushup(keypoints, feedback, now) {
   const elbow = keypoints.find(k => k.name === side + '_elbow');
   const wrist = keypoints.find(k => k.name === side + '_wrist');
 
-  // Verificar alineación hombro-cadera-tobillo
+  // Alineación hombro-cadera-tobillo
   if (shoulder && hip && ankle &&
       shoulder.score > 0.3 && hip.score > 0.3 && ankle.score > 0.3) {
 
@@ -642,7 +735,6 @@ function evaluatePushup(keypoints, feedback, now) {
       warning = warning || '❌ Codos muy abiertos (usá 45°)';
     }
 
-    // ROM + tempo + velocidad
     if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
     if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
 
@@ -650,7 +742,6 @@ function evaluatePushup(keypoints, feedback, now) {
     updateTempo(elbowAngle, isDescending, now);
     updateVelocity(shoulder, now);
 
-    // Lógica de fases
     if (elbowAngle > 155) {
       if (workoutState.stage === 'down') {
         workoutState.stage = 'up';
@@ -695,7 +786,6 @@ function evaluateBenchPress(keypoints, feedback, now) {
 
     const elbowAngle = calculateAngle(shoulder, elbow, wrist);
 
-    // Detectar ángulo peligroso del codo
     if (hip && hip.score > 0.3) {
       const armTorsoAngle = calculateAngle(hip, shoulder, elbow);
       if (armTorsoAngle > 85) {
@@ -704,7 +794,6 @@ function evaluateBenchPress(keypoints, feedback, now) {
       }
     }
 
-    // ROM + tempo + velocidad
     if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
     if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
 
@@ -712,7 +801,6 @@ function evaluateBenchPress(keypoints, feedback, now) {
     updateTempo(elbowAngle, isDescending, now);
     updateVelocity(wrist, now);
 
-    // Lógica de fases
     if (elbowAngle > 155) {
       if (workoutState.stage === 'down') {
         workoutState.stage = 'up';
@@ -772,7 +860,6 @@ function evaluateLatPulldown(keypoints, feedback, now) {
       }
     }
 
-    // ROM + tempo
     if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
     if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
 
@@ -780,7 +867,6 @@ function evaluateLatPulldown(keypoints, feedback, now) {
     updateTempo(elbowAngle, isDescending, now);
     updateVelocity(wrist, now);
 
-    // Lógica de fases
     if (elbowAngle > 150) {
       workoutState.stage = 'extended';
       workoutState.romTracker.fullROMAchieved = true;
@@ -826,7 +912,6 @@ function evaluateSeatedRow(keypoints, feedback, now) {
       warning = '❌ No uses el torso: tirá con la espalda';
     }
 
-    // ROM + tempo
     if (elbowAngle < workoutState.romTracker.minAngle) workoutState.romTracker.minAngle = elbowAngle;
     if (elbowAngle > workoutState.romTracker.maxAngle) workoutState.romTracker.maxAngle = elbowAngle;
 
@@ -834,7 +919,6 @@ function evaluateSeatedRow(keypoints, feedback, now) {
     updateTempo(elbowAngle, isDescending, now);
     updateVelocity(wrist, now);
 
-    // Lógica de fases
     if (elbowAngle > 150) {
       workoutState.stage = 'extended';
       workoutState.romTracker.fullROMAchieved = true;
@@ -901,10 +985,9 @@ async function detectPose() {
               break;
           }
 
-          // 🆕 Actualizar TUT
+          // Actualizar TUT
           const deltaTime = now - workoutState.lastFrameTime;
           workoutState.lastFrameTime = now;
-          // Consideramos "bajo tensión" cuando no está en reposo (stage !== 'start')
           if (workoutState.stage !== 'start' && result.badParts.length === 0) {
             workoutState.tut += deltaTime;
             workoutState.isUnderTension = true;
@@ -919,14 +1002,15 @@ async function detectPose() {
             feedback.style.color = '#ff4444';
             alertBorder.classList.add('danger');
             triggerErrorFeedback();
+            updateStatusIndicator('error', 'MAL');
           } else {
             workoutState.goodFrames++;
             alertBorder.classList.remove('danger');
+            updateStatusIndicator('ok', 'OK');
           }
 
           drawSkeleton(keypoints, result.badParts);
 
-          // Alerta de fatiga
           if (workoutState.velocityTracker.fatigueDetected) {
             const fatigueEl = document.getElementById('metric-fatigue');
             if (fatigueEl) fatigueEl.textContent = '⚠️ FATIGA';
@@ -957,7 +1041,6 @@ function showNextSetButton() {
       workoutState.currentSet++;
       workoutState.currentRep = 0;
       workoutState.stage = 'start';
-      // Resetear trackers por serie
       workoutState.romTracker = { minAngle: 999, maxAngle: 0, fullROMAchieved: false, repROMs: workoutState.romTracker.repROMs };
       workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0 };
       updateHUD();
@@ -992,7 +1075,6 @@ function finishWorkout() {
   document.getElementById('stat-time').textContent = `${mins}:${secs}`;
   document.getElementById('stat-accuracy').textContent = `${accuracy}%`;
 
-  // 🆕 Métricas avanzadas en resumen
   const avgROM = workoutState.romTracker.repROMs.length > 0
     ? Math.round(workoutState.romTracker.repROMs.reduce((a, b) => a + b, 0) / workoutState.romTracker.repROMs.length)
     : 0;
@@ -1094,6 +1176,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     await setupCamera();
     feedback.textContent = '🤖 Cargando IA...';
     await loadModel();
+    configureMetricsPanel();
     feedback.textContent = 'Ubicate frente a la cámara';
     await runCountdown();
     workoutState.startTime = Date.now();
@@ -1104,7 +1187,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   }
 });
 
-// Cambiar cámara y Volver
+// Cambiar cámara
 document.getElementById('btn-rotate-overlay').addEventListener('click', async () => {
   if (isSwitching) return;
   isSwitching = true;
@@ -1129,6 +1212,20 @@ document.getElementById('btn-back').addEventListener('click', () => {
 document.getElementById('btn-finish-home').addEventListener('click', () => {
   document.getElementById('summary-modal').style.display = 'none';
   setupScreen.style.display = 'flex';
+});
+
+// 🆕 Event listeners del panel de métricas
+document.getElementById('metrics-toggle')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleMetricsPanel();
+});
+
+document.getElementById('video-wrapper')?.addEventListener('click', (e) => {
+  if (!e.target.closest('.metrics-panel') &&
+      !e.target.closest('.overlay-btn') &&
+      !e.target.closest('.controls')) {
+    showMetricsPanel();
+  }
 });
 
 // Guía de instrucciones
