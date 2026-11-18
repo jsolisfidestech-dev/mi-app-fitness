@@ -147,9 +147,32 @@ async function setupCamera() {
   ctx = canvas.getContext('2d');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }
+      video: {
+        facingMode: currentFacingMode,
+        width: { ideal: 1280 },      // 🆕 Más ancho (1280 en vez de 640)
+        height: { ideal: 720 },      // 🆕 16:9 en vez de 4:3
+        aspectRatio: { ideal: 16 / 9 }, // 🆕 Forzar aspecto amplio
+        zoom: { ideal: 1.0 }         // 🆕 Forzar zoom mínimo (sin zoom)
+      }
     });
     video.srcObject = stream;
+    
+    // 🆕 Intentar forzar zoom mínimo después de obtener el stream
+    try {
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities();
+      
+      // Si el dispositivo soporta zoom, forzarlo al mínimo
+      if (capabilities.zoom) {
+        const minZoom = capabilities.zoom.min || 1;
+        await track.applyConstraints({
+          advanced: [{ zoom: minZoom }]
+        });
+      }
+    } catch (zoomError) {
+      console.log('Zoom no soportado o no ajustable:', zoomError);
+    }
+    
     return new Promise((resolve) => {
       video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
@@ -161,41 +184,6 @@ async function setupCamera() {
     console.error('Error cámara:', error);
     throw error;
   }
-}
-
-async function loadModel() {
-  if (!detector) {
-    detector = await poseDetection.createDetector(
-      poseDetection.SupportedModels.MoveNet,
-      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-    );
-  }
-}
-
-function runCountdown() {
-  return new Promise((resolve) => {
-    let count = 3;
-    countdownOverlay.style.display = 'flex';
-    function showNumber() {
-      if (count > 0) {
-        playTone(440, 'sine', 0.12);
-        countdownNumber.textContent = count;
-        countdownNumber.className = 'countdown-number show';
-        setTimeout(() => countdownNumber.classList.add('fade'), 700);
-        setTimeout(() => { count--; showNumber(); }, 1000);
-      } else {
-        playTone(880, 'sine', 0.3);
-        countdownNumber.textContent = '¡YA!';
-        countdownNumber.className = 'countdown-number show go';
-        setTimeout(() => countdownNumber.classList.add('fade'), 600);
-        setTimeout(() => {
-          countdownOverlay.style.display = 'none';
-          resolve();
-        }, 900);
-      }
-    }
-    showNumber();
-  });
 }
 
 // ===== MATEMÁTICA Y SUAVIZADO =====
