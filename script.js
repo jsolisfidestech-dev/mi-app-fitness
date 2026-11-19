@@ -3,7 +3,7 @@ let currentFacingMode = 'user';
 let isSwitching = false;
 let isRunning = false;
 
-// ===== ICONOS SVG (reemplazan emojis) =====
+// ===== ICONOS SVG =====
 const ICONS = {
   dumbbell: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M6.5 6.5h11v11h-11z"/><path d="M6.5 2v4.5"/><path d="M17.5 2v4.5"/><path d="M6.5 17.5V22"/><path d="M17.5 17.5V22"/></svg>',
   leg: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M12 2v8"/><path d="M8 10h8"/><path d="M10 10v12"/><path d="M14 10v12"/></svg>',
@@ -44,7 +44,8 @@ const workoutState = {
     eccentricDuration: 0,
     pauseDuration: 0,
     concentricDuration: 0,
-    lastPhaseChange: 0
+    lastPhaseChange: 0,
+    angleHistory: [] // 🆕 Buffer para detección de picos
   },
 
   // Time Under Tension
@@ -79,7 +80,7 @@ const workoutState = {
   }
 };
 
-// Base de datos de ejercicios (con SVGs en vez de emojis)
+// Base de datos de ejercicios
 const exercisesDB = [
   { id: 'curl', name: 'Curl de Bíceps', icon: ICONS.dumbbell, category: 'upper' },
   { id: 'squat', name: 'Sentadilla', icon: ICONS.leg, category: 'lower' },
@@ -186,7 +187,7 @@ async function setupCamera() {
         await track.applyConstraints({ advanced: [{ zoom: minZoom }] });
       }
     } catch (zoomError) {
-      console.log('Zoom no ajustable:', zoomError);
+      console.log('Zoom no ajustable:', zoomError.message);
     }
 
     return new Promise((resolve) => {
@@ -209,6 +210,75 @@ async function loadModel() {
       { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
     );
   }
+}
+
+// 🆕 VALIDACIÓN DE POSICIÓN DEL USUARIO (calibración de distancia)
+async function validateUserPosition() {
+  const feedback = document.getElementById('feedback');
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const maxAttempts = 60; // 12 segundos máximo
+
+    const check = async () => {
+      if (attempts >= maxAttempts) {
+        resolve(false);
+        return;
+      }
+
+      try {
+        const poses = await detector.estimatePoses(video);
+        if (poses.length === 0) {
+          feedback.innerHTML = `${ICONS.alert} Ubicate frente a la cámara`;
+          attempts++;
+          setTimeout(check, 300);
+          return;
+        }
+
+        const kp = poses[0].keypoints;
+        const head = kp.find(k => k.name === 'nose');
+        const lAnkle = kp.find(k => k.name === 'left_ankle');
+        const rAnkle = kp.find(k => k.name === 'right_ankle');
+        const lHip = kp.find(k => k.name === 'left_hip');
+        const rHip = kp.find(k => k.name === 'right_hip');
+
+        // Verificar cuerpo completo
+        const headVisible = head && head.score > 0.4;
+        const feetVisible = (lAnkle && lAnkle.score > 0.3) || (rAnkle && rAnkle.score > 0.3);
+        const hipsVisible = (lHip && lHip.score > 0.3) || (rHip && rHip.score > 0.3);
+
+        if (!headVisible) {
+          feedback.innerHTML = `${ICONS.alert} Acercate un poco: no veo tu cabeza`;
+          attempts++;
+          setTimeout(check, 500);
+          return;
+        }
+
+        if (!feetVisible && !hipsVisible) {
+          feedback.innerHTML = `${ICONS.alert} Alejate: necesito ver tu cuerpo completo`;
+          attempts++;
+          setTimeout(check, 500);
+          return;
+        }
+
+        // Verificar iluminación (muchos puntos con score bajo)
+        const lowScoreJoints = kp.filter(k => k.score < 0.3).length;
+        if (lowScoreJoints > 8) {
+          feedback.innerHTML = `${ICONS.alert} Mejorá la iluminación: te veo borroso`;
+          attempts++;
+          setTimeout(check, 500);
+          return;
+        }
+
+        // Todo OK
+        resolve(true);
+      } catch (err) {
+        attempts++;
+        setTimeout(check, 300);
+      }
+    };
+
+    check();
+  });
 }
 
 function runCountdown() {
@@ -362,11 +432,16 @@ function registerRepCompleted(feedbackEl, fullROM = true, currentROM = 0) {
   }
 }
 
+// 🆕 TEMPO MEJORADO con buffer para evitar desincronizaciones
 function updateTempo(angle, isDescending, now) {
   const tt = workoutState.tempoTracker;
 
+  // Guardar historial de ángulos
+  tt.angleHistory.push({ angle, t: now });
+  if (tt.angleHistory.length > 12) tt.angleHistory.shift();
+
   if (isDescending && tt.currentPhase !== 'eccentric') {
-    if (tt.currentPhase === 'concentric' || tt.currentPhase === 'idle') {
+    if (tt.currentPhase === 'concentric' || tt.currentPhase === 'idle' || tt.currentPhase === 'pause') {
       tt.eccentricDuration = 0;
     }
     tt.currentPhase = 'eccentric';
@@ -374,7 +449,8 @@ function updateTempo(angle, isDescending, now) {
   } else if (!isDescending && tt.currentPhase === 'eccentric') {
     tt.currentPhase = 'pause';
     tt.lastPhaseChange = now;
-  } else if (!isDescending && tt.currentPhase === 'pause' && (now - tt.lastPhaseChange) > 150) {
+  } else if (!isDescending && tt.currentPhase === 'pause' && (now - tt.lastPhaseChange) > 200) {
+    // Aumenté el umbral de 150ms a 200ms para mayor estabilidad
     tt.currentPhase = 'concentric';
     tt.lastPhaseChange = now;
   }
@@ -412,6 +488,10 @@ function updateSymmetry(leftAngle, rightAngle) {
   const st = workoutState.symmetryTracker;
   if (leftAngle > 0) st.leftAngles.push(leftAngle);
   if (rightAngle > 0) st.rightAngles.push(rightAngle);
+
+  // Limitar tamaño del array para no consumir memoria
+  if (st.leftAngles.length > 100) st.leftAngles = st.leftAngles.slice(-100);
+  if (st.rightAngles.length > 100) st.rightAngles = st.rightAngles.slice(-100);
 
   if (st.leftAngles.length > 0) {
     st.leftROM = Math.max(...st.leftAngles) - Math.min(...st.leftAngles);
@@ -554,7 +634,6 @@ function evaluateCurl(keypoints, feedback, now) {
   if (leftShoulder && rightShoulder && leftHip && rightHip &&
       leftShoulder.score > 0.3 && rightShoulder.score > 0.3 &&
       leftHip.score > 0.3 && rightHip.score > 0.3) {
-
     const shoulderCenter = {
       x: (leftShoulder.x + rightShoulder.x) / 2,
       y: (leftShoulder.y + rightShoulder.y) / 2
@@ -563,10 +642,8 @@ function evaluateCurl(keypoints, feedback, now) {
       x: (leftHip.x + rightHip.x) / 2,
       y: (leftHip.y + rightHip.y) / 2
     };
-
     const torsoSway = Math.abs(shoulderCenter.x - hipCenter.x);
     const shoulderWidth = distance(leftShoulder, rightShoulder);
-
     if (torsoSway > shoulderWidth * 0.15) {
       badParts.push('left_shoulder', 'right_shoulder', 'left_hip', 'right_hip');
       warning = `${ICONS.xCircle} No balancees el torso, aislá el bíceps`;
@@ -651,13 +728,10 @@ function evaluateSquat(keypoints, feedback, now) {
   if (leftKnee && rightKnee && leftAnkle && rightAnkle &&
       leftKnee.score > 0.3 && rightKnee.score > 0.3 &&
       leftAnkle.score > 0.3 && rightAnkle.score > 0.3) {
-
     const kneeDistance = Math.abs(leftKnee.x - rightKnee.x);
     const ankleDistance = Math.abs(leftAnkle.x - rightAnkle.x);
     const valgusRatio = ankleDistance > 0 ? kneeDistance / ankleDistance : 1;
-
     const kneeAngle = calculateAngle(hip, knee, ankle);
-
     if (kneeAngle < 110 && valgusRatio < 0.7) {
       badParts.push('left_knee', 'right_knee');
       warning = `${ICONS.xCircle} Rodillas hacia adentro (valgo): empujalas afuera`;
@@ -735,9 +809,7 @@ function evaluatePushup(keypoints, feedback, now) {
 
   if (shoulder && hip && ankle &&
       shoulder.score > 0.3 && hip.score > 0.3 && ankle.score > 0.3) {
-
     const bodyAlignment = calculateAngle(shoulder, hip, ankle);
-
     if (bodyAlignment > 195) {
       badParts.push(side + '_hip');
       warning = `${ICONS.xCircle} Cadera muy alta: mantené línea recta`;
@@ -749,7 +821,6 @@ function evaluatePushup(keypoints, feedback, now) {
 
   if (shoulder && elbow && wrist &&
       shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-
     const elbowAngle = calculateAngle(shoulder, elbow, wrist);
 
     if (Math.abs(elbow.y - shoulder.y) < 15 && elbowAngle < 120) {
@@ -805,7 +876,6 @@ function evaluateBenchPress(keypoints, feedback, now) {
 
   if (shoulder && elbow && wrist &&
       shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-
     const elbowAngle = calculateAngle(shoulder, elbow, wrist);
 
     if (hip && hip.score > 0.3) {
@@ -865,17 +935,14 @@ function evaluateLatPulldown(keypoints, feedback, now) {
 
   if (shoulder && elbow && wrist &&
       shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3) {
-
     const elbowAngle = calculateAngle(shoulder, elbow, wrist);
 
     if (nose && nose.score > 0.3 && hip && hip.score > 0.3) {
       const torsoLeanBack = calculateAngle(nose, shoulder, hip);
-
       if (wrist.y < nose.y && torsoLeanBack > 20) {
         badParts.push(side + '_wrist');
         warning = `${ICONS.xCircle} No lo lleves detrás del cuello: lesiona el hombro`;
       }
-
       if (torsoLeanBack > 25) {
         badParts.push(side + '_shoulder', side + '_hip');
         warning = warning || `${ICONS.xCircle} Menos peso: no te arquees hacia atrás`;
@@ -925,7 +992,6 @@ function evaluateSeatedRow(keypoints, feedback, now) {
 
   if (shoulder && elbow && wrist && hip &&
       shoulder.score > 0.3 && elbow.score > 0.3 && wrist.score > 0.3 && hip.score > 0.3) {
-
     const elbowAngle = calculateAngle(shoulder, elbow, wrist);
     const torsoLeanBack = calculateAngle(hip, shoulder, { x: shoulder.x, y: shoulder.y - 100 });
 
@@ -1046,6 +1112,54 @@ async function detectPose() {
   }
 }
 
+// ===== HISTORIAL LOCAL (localStorage) =====
+function saveWorkoutToHistory(summary) {
+  try {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    history.push({
+      ...summary,
+      date: new Date().toISOString(),
+      id: Date.now()
+    });
+    // Mantener solo las últimas 100 sesiones
+    if (history.length > 100) history.shift();
+    localStorage.setItem('workoutHistory', JSON.stringify(history));
+  } catch (e) {
+    console.log('Error guardando historial:', e);
+  }
+}
+
+function getWeeklyStats() {
+  try {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const thisWeek = history.filter(h => new Date(h.date).getTime() > weekAgo);
+    return {
+      sessions: thisWeek.length,
+      totalReps: thisWeek.reduce((sum, h) => sum + (h.reps || 0), 0),
+      totalTimeMin: Math.round(thisWeek.reduce((sum, h) => sum + (h.durationSec || 0), 0) / 60)
+    };
+  } catch (e) {
+    return { sessions: 0, totalReps: 0, totalTimeMin: 0 };
+  }
+}
+
+function updateWeeklyStatsDisplay() {
+  const stats = getWeeklyStats();
+  const weeklyStatsEl = document.getElementById('weekly-stats');
+  if (!weeklyStatsEl) return;
+
+  if (stats.sessions > 0) {
+    weeklyStatsEl.style.display = 'flex';
+    document.getElementById('week-sessions').textContent = stats.sessions;
+    document.getElementById('week-reps').textContent = stats.totalReps;
+    document.getElementById('week-time').textContent = `${stats.totalTimeMin}min`;
+  } else {
+    weeklyStatsEl.style.display = 'none';
+  }
+}
+
 // ===== UI Y CONTROLES =====
 function updateHUD() {
   overlaySetText.textContent = `Serie ${workoutState.currentSet}/${workoutState.targetSets}`;
@@ -1063,7 +1177,7 @@ function showNextSetButton() {
       workoutState.currentRep = 0;
       workoutState.stage = 'start';
       workoutState.romTracker = { minAngle: 999, maxAngle: 0, fullROMAchieved: false, repROMs: workoutState.romTracker.repROMs };
-      workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0 };
+      workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0, angleHistory: [] };
       updateHUD();
       controlsBottom.style.display = 'none';
       const feedback = document.getElementById('feedback');
@@ -1091,8 +1205,10 @@ function finishWorkout() {
     : 100;
   const exObj = exercisesDB.find(e => e.id === workoutState.exercise);
 
+  const totalReps = (workoutState.currentSet - 1) * workoutState.targetReps + workoutState.currentRep;
+
   document.getElementById('summary-exercise-name').textContent = exObj ? exObj.name : '';
-  document.getElementById('stat-reps').textContent = (workoutState.currentSet - 1) * workoutState.targetReps + workoutState.currentRep;
+  document.getElementById('stat-reps').textContent = totalReps;
   document.getElementById('stat-time').textContent = `${mins}:${secs}`;
   document.getElementById('stat-accuracy').textContent = `${accuracy}%`;
 
@@ -1112,6 +1228,18 @@ function finishWorkout() {
   if (statTempo) statTempo.textContent = `${avgTempoEcc}-${avgTempoCon}`;
   if (statTUT) statTUT.textContent = `${tutSec}s`;
   if (statSymmetry) statSymmetry.textContent = `${workoutState.symmetryTracker.imbalancePercent}%`;
+
+  // 🆕 Guardar en historial
+  saveWorkoutToHistory({
+    exercise: exObj ? exObj.name : workoutState.exercise,
+    reps: totalReps,
+    durationSec: elapsedSec,
+    accuracy: accuracy,
+    rom: avgROM,
+    tempo: `${avgTempoEcc}-${avgTempoCon}`,
+    tut: parseFloat(tutSec),
+    symmetry: workoutState.symmetryTracker.imbalancePercent
+  });
 
   workoutScreen.style.display = 'none';
   document.getElementById('summary-modal').style.display = 'flex';
@@ -1139,7 +1267,7 @@ function renderExerciseList(query = '') {
     item.addEventListener('click', () => {
       const ex = exercisesDB.find(e => e.id === item.dataset.id);
       workoutState.exercise = ex.id;
-      selectedExerciseDiv.innerHTML = `${ex.name} ${ex.icon}`;
+      selectedExerciseDiv.innerHTML = `<span>${ex.name}</span> ${ex.icon}`;
       searchInput.value = '';
       searchResults.classList.remove('active');
     });
@@ -1183,7 +1311,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   workoutState.smoothedKeypoints = null;
   workoutState.tut = 0;
   workoutState.romTracker = { minAngle: 999, maxAngle: 0, fullROMAchieved: false, repROMs: [] };
-  workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0 };
+  workoutState.tempoTracker = { phaseStartTime: 0, currentPhase: 'idle', eccentricDuration: 0, pauseDuration: 0, concentricDuration: 0, lastPhaseChange: 0, angleHistory: [] };
   workoutState.velocityTracker = { positions: [], currentVelocity: 0, peakVelocity: 0, velocityLossPercent: 0, fatigueDetected: false };
   workoutState.symmetryTracker = { leftAngles: [], rightAngles: [], leftROM: 0, rightROM: 0, imbalancePercent: 0 };
 
@@ -1197,6 +1325,20 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     await setupCamera();
     feedback.innerHTML = `${ICONS.cpu} Cargando IA...`;
     await loadModel();
+    
+    // 🆕 Calibración de distancia
+    feedback.innerHTML = `${ICONS.smartphone} Verificando posición...`;
+    const positionOk = await validateUserPosition();
+    if (!positionOk) {
+      feedback.innerHTML = `${ICONS.xCircle} No se detecta tu cuerpo. Volvé e intentá de nuevo`;
+      setTimeout(() => {
+        if (video && video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+        workoutScreen.style.display = 'none';
+        setupScreen.style.display = 'flex';
+      }, 2500);
+      return;
+    }
+    
     configureMetricsPanel();
     feedback.textContent = 'Ubicate frente a la cámara';
     await runCountdown();
@@ -1233,6 +1375,7 @@ document.getElementById('btn-back').addEventListener('click', () => {
 document.getElementById('btn-finish-home').addEventListener('click', () => {
   document.getElementById('summary-modal').style.display = 'none';
   setupScreen.style.display = 'flex';
+  updateWeeklyStatsDisplay(); // 🆕 Actualizar stats al volver
 });
 
 // Event listeners del panel de métricas
@@ -1249,7 +1392,7 @@ document.getElementById('video-wrapper')?.addEventListener('click', (e) => {
   }
 });
 
-// Guía de instrucciones (con SVGs)
+// Guía de instrucciones
 const exerciseInstructions = {
   curl: {
     title: `${ICONS.dumbbell} Curl de Bíceps`,
@@ -1298,4 +1441,9 @@ document.getElementById('btn-close-modal').addEventListener('click', () => {
 
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.search-container')) searchResults.classList.remove('active');
+});
+
+// 🆕 Inicializar stats semanales al cargar la página
+document.addEventListener('DOMContentLoaded', () => {
+  updateWeeklyStatsDisplay();
 });
